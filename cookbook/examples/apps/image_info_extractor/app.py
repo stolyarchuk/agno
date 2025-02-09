@@ -1,8 +1,9 @@
-import streamlit as st
 import os
 from pathlib import Path
-from image_workflow import ImageProcessingWorkflow  # Import the Agno workflow
+
+import streamlit as st
 from agno.utils.pprint import pprint_run_response
+from image_workflow import ImageProcessingWorkflow  # Import the Agno workflow
 
 # Streamlit App Configuration
 st.set_page_config(
@@ -20,30 +21,21 @@ with st.sidebar:
     st.markdown("🚀 AI-powered image understanding at your fingertips!")
     # Model Selection
     model_provider = st.selectbox(
-        "🔍 Select Model Provider",
-        ["OpenAI", "Gemini"],
-        index=0
+        "🔍 Select Model Provider", ["OpenAI", "Gemini"], index=0
     )
 
     # API Key Input
-    api_key = st.text_input(
-        f"🔑 Enter {model_provider} API Key",
-        type="password"
-    )
+    api_key = st.text_input(f"🔑 Enter {model_provider} API Key", type="password")
 
     # Mode Selection (Auto, Manual, Hybrid)
-    mode = st.radio(
-        "⚙️ Select Extraction Mode",
-        ["Auto", "Manual", "Hybrid"],
-        index=0
-    )
+    mode = st.radio("⚙️ Select Extraction Mode", ["Auto", "Manual", "Hybrid"], index=0)
 
     # Manual/Hybrid Mode: Get User Instructions
     instruction = None
     if mode in ["Manual", "Hybrid"]:
         instruction = st.text_area(
             "📝 Enter Instructions (For Manual/Hybrid Mode)",
-            placeholder="Example: Extract number plates from all vehicles."
+            placeholder="Example: Extract number plates from all vehicles.",
         )
 
     st.markdown("---")
@@ -60,7 +52,9 @@ with st.sidebar:
     )
 
 # Main Content
-st.markdown("Extract **valuable insights** and **structured information** from images using VisioAI. 🚀")
+st.markdown(
+    "Extract **valuable insights** and **structured information** from images using VisioAI. 🚀"
+)
 
 # Image Upload
 uploaded_file = st.file_uploader("📤 Upload an Image 📷", type=["png", "jpg", "jpeg"])

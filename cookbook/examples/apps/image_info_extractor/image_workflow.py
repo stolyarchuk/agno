@@ -1,18 +1,18 @@
 import json
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
 from pathlib import Path
-from pydantic import BaseModel, Field
-from dotenv import load_dotenv
+from typing import Dict, List, Optional
 
 from agno.agent import Agent
 from agno.media import Image
-from agno.models.openai import OpenAIChat
 from agno.models.google import Gemini
+from agno.models.openai import OpenAIChat
 from agno.utils.log import logger
 from agno.utils.pprint import pprint_run_response
 from agno.workflow import RunResponse, Workflow
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
 
 # Load environment variables
 load_dotenv()
@@ -25,12 +25,11 @@ today = datetime.now().strftime("%Y-%m-%d")
 
 class ImageAnalysisResult(BaseModel):
     """Stores structured data from the Identify Agent"""
+
     objects_detected: Dict[str, Dict] = Field(
         ..., description="Categorized detected objects"
     )
-    text_presence: Dict = Field(
-        ..., description="Categorized detected text sources"
-    )
+    text_presence: Dict = Field(..., description="Categorized detected text sources")
     extraction_plan: List[str] = Field(
         ..., description="List of specific elements to extract"
     )
@@ -38,9 +37,8 @@ class ImageAnalysisResult(BaseModel):
 
 class ExtractedImageData(BaseModel):
     """Stores structured data from the Extractor Agent"""
-    extracted_data: Dict = Field(
-        ..., description="Final structured extraction output"
-    )
+
+    extracted_data: Dict = Field(..., description="Final structured extraction output")
 
 
 class ImageProcessingWorkflow(Workflow):
@@ -124,7 +122,9 @@ class ImageProcessingWorkflow(Workflow):
         }
         """
 
-        response = identifier_agent.run(prompt, images=[Image(filepath=image_path)]).content
+        response = identifier_agent.run(
+            prompt, images=[Image(filepath=image_path)]
+        ).content
 
         if isinstance(response, str):
             response = json.loads(response)
@@ -134,15 +134,19 @@ class ImageProcessingWorkflow(Workflow):
 
         return response
 
-    def extract_data(self, image_path: Path, image_extraction_plan, model) -> ExtractedImageData:
+    def extract_data(
+        self, image_path: Path, image_extraction_plan, model
+    ) -> ExtractedImageData:
         """Extract structured details based on Identify Agent’s plan or manual instructions."""
         logger.info("Running Extractor Agent for data extraction...")
 
         # Extractor Agent: Extracts details based on Identify Agent’s plan or user input
         extractor_agent = Agent(
             model=model,
-            description=("An AI agent that extracts structured information from images based on the extraction "
-                         "plan provided by the Identify Agent or user instructions."),
+            description=(
+                "An AI agent that extracts structured information from images based on the extraction "
+                "plan provided by the Identify Agent or user instructions."
+            ),
             response_model=ExtractedImageData,
         )
 
@@ -173,7 +177,9 @@ class ImageProcessingWorkflow(Workflow):
         Analysis of each image is must and significance field should be returned if you know anything special about the place or objects in the image.
         """
 
-        response = extractor_agent.run(prompt, images=[Image(filepath=image_path)]).content
+        response = extractor_agent.run(
+            prompt, images=[Image(filepath=image_path)]
+        ).content
 
         if isinstance(response, str):
             response = json.loads(response)
@@ -183,17 +189,21 @@ class ImageProcessingWorkflow(Workflow):
 
         return response
 
-    def run(self, image_path, mode: str, model_choice: str,
-            api_key: str, instruction: Optional[str] = None) -> RunResponse:
+    def run(
+        self,
+        image_path,
+        mode: str,
+        model_choice: str,
+        api_key: str,
+        instruction: Optional[str] = None,
+    ) -> RunResponse:
         """Main workflow to analyze and extract structured data from an image"""
 
         # Select AI Model
         if model_choice == "OpenAI":
-            model = OpenAIChat(id="gpt-4o",
-                               api_key=api_key)
+            model = OpenAIChat(id="gpt-4o", api_key=api_key)
         else:
-            model = Gemini(id="gemini-2.0-flash",
-                           api_key=api_key)
+            model = Gemini(id="gemini-2.0-flash", api_key=api_key)
 
         if mode == "Auto":
             # Auto Mode: Extract everything possible
@@ -212,7 +222,11 @@ class ImageProcessingWorkflow(Workflow):
 
             # Hybrid Mode: Identify + User-Specified Data
             analysis_result = self.analyze_image(image_path, model)
-            combined_instruction = str(analysis_result) + "\n\nRequest from user to extract information:" + str(instruction)
+            combined_instruction = (
+                str(analysis_result)
+                + "\n\nRequest from user to extract information:"
+                + str(instruction)
+            )
             logger.info(f"Combined_instruction: {combined_instruction}")
             extracted_data = self.extract_data(image_path, combined_instruction, model)
 
@@ -220,4 +234,3 @@ class ImageProcessingWorkflow(Workflow):
             raise ValueError(f"Invalid mode selected: {mode}")
 
         return RunResponse(content=extracted_data.model_dump())
-

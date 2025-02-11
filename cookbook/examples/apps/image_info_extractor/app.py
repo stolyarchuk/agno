@@ -154,36 +154,40 @@ def main():
     logger.info(f"✅ Image successfully saved at: {image_path}")
 
     ####################################################################
-    # Auto Mode - Extract Button
-    ####################################################################
-    if mode == "Auto":
-        if uploaded_file:
-            if st.button("🚀 Extract Image Data"):
-                extracted_data = image_agent.run(extraction_prompt, images=[Image(filepath=image_path)])
-                logger.info(f"Extracted Data Response: {extracted_data.content}")
-                st.json(extracted_data.content)
-                add_message("assistant", extracted_data.content)
-        else:
-            st.warning("⚠️ Please upload an image to extract data.")
-
-    ####################################################################
-    # User Chat Input
-    ####################################################################
-    if prompt := st.chat_input("💬 Ask about the image or anything else..."):
-        add_message("user", prompt)
-
-    ####################################################################
-    # Display Chat History
+    # **1️⃣ Display Chat History First**
     ####################################################################
     for message in st.session_state["messages"]:
         if message["role"] in ["user", "assistant"]:
             _content = message["content"]
             if _content is not None:
                 with st.chat_message(message["role"]):
-                    st.markdown(_content)
+                    st.write(_content)
 
     ####################################################################
-    # Process User Query
+    # **2️⃣ Auto Mode - Automatically Extract Image Data**
+    ####################################################################
+    if mode == "Auto" and uploaded_file:
+        st.success("📤 Auto Mode enabled! Extracting image data...")
+
+        extracted_data = image_agent.run(
+            extraction_prompt, images=[Image(filepath=image_path)]
+        )
+        logger.info(f"Extracted Data Response: {extracted_data.content}")
+
+        # Show extracted data
+        st.write(extracted_data.content)
+
+        # Save the response in chat history
+        add_message("assistant", extracted_data.content)
+
+    ####################################################################
+    # **3️⃣ Handle User Chat Input**
+    ####################################################################
+    if prompt := st.chat_input("💬 Ask about the image or anything else..."):
+        add_message("user", prompt)
+
+    ####################################################################
+    # **4️⃣ Process User Queries & Stream Responses**
     ####################################################################
     last_message = st.session_state["messages"][-1] if st.session_state["messages"] else None
     if last_message and last_message.get("role") == "user":
@@ -193,19 +197,29 @@ def main():
             with st.spinner("🤔 Processing..."):
                 response = ""
                 try:
-                    # Run agent and get response
+                    # Run agent and stream response
                     if uploaded_file:
-                        extracted_data = image_agent.run(extraction_prompt,
-                                                         images=[Image(filepath=image_path)],
-                                                         instructions=instruction)
+                        extracted_data = image_agent.run(
+                            extraction_prompt,
+                            images=[Image(filepath=image_path)],
+                            instructions=instruction,
+                            stream=True
+                        )
                     else:
-                        extracted_data = image_agent.run(extraction_prompt,
-                                                         images=[Image(filepath=image_path)],
-                                                         instructions=question)
+                        extracted_data = image_agent.run(
+                            extraction_prompt,
+                            images=[Image(filepath=image_path)],
+                            instructions=question,
+                            stream=True
+                        )
 
-                    response += extracted_data.content
-                    response_container.markdown(response)
+                    # Stream updates in real-time
+                    for chunk in extracted_data:
+                        if chunk and chunk.content:
+                            response += chunk.content
+                            response_container.markdown(response)
 
+                    # Save assistant response in chat history
                     add_message("assistant", response)
                 except Exception as e:
                     error_message = f"❌ Error: {str(e)}"

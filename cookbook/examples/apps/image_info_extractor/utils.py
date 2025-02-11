@@ -47,12 +47,14 @@ def session_selector_widget(agent: Agent) -> None:
     if agent.storage:
         agent_sessions = agent.storage.get_all_sessions()
         session_options = [
-            {
-                "id": session.session_id,
-                "display": session.session_data.get("session_name", session.session_id),
-            }
+            {"id": session.session_id, "display": session.session_data.get("session_name", session.session_id)}
             for session in agent_sessions
         ]
+
+        # Ensure we have sessions before showing the selector
+        if not session_options:
+            st.sidebar.warning("⚠️ No previous sessions found. Starting a new session.")
+            return
 
         selected_session = st.sidebar.selectbox(
             "Session",
@@ -60,9 +62,15 @@ def session_selector_widget(agent: Agent) -> None:
             key="session_selector",
         )
 
+        # Safely find the selected session ID
         selected_session_id = next(
-            s["id"] for s in session_options if s["display"] == selected_session
+            (s["id"] for s in session_options if s["display"] == selected_session),
+            None  # Default to None if not found
         )
+
+        if not selected_session_id:
+            st.sidebar.warning("⚠️ Selected session not found. Please restart or choose another session.")
+            return
 
         if st.session_state.get("image_agent_session_id") != selected_session_id:
             logger.info(f"---*--- Loading session: {selected_session_id} ---*---")
@@ -77,9 +85,7 @@ def session_selector_widget(agent: Agent) -> None:
                 model = Gemini(id="gemini-2.0-flash", api_key=api_key)
 
             # Reload the agent with the selected session
-            st.session_state["image_agent"] = image_processing_agent(
-                model=model, user_id=st.session_state["user_id"]
-            )
+            st.session_state["image_agent"] = image_processing_agent(model=model, user_id=st.session_state["user_id"])
             st.session_state["image_agent"].load_session(selected_session_id)
             st.session_state["image_agent_session_id"] = selected_session_id
             st.rerun()

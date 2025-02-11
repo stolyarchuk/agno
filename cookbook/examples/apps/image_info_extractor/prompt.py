@@ -1,4 +1,4 @@
-prompt = """
+extraction_prompt = """
 
     ### Task: Extract Maximum Information from the Image
     You are an advanced AI agent specialized in analyzing and extracting structured data from images.

@@ -111,7 +111,7 @@ class CalComTools(Toolkit):
                 "eventTypeId": str(self.event_type_id),
             }
 
-            response = requests.get(url, headers=self._get_headers(), params=querystring)
+            response = requests.get(url, headers=self._get_headers(), params=querystring)  # type: ignore
             if response.status_code == 200:
                 slots = response.json()["data"]["slots"]
                 available_slots = []
@@ -174,7 +174,6 @@ class CalComTools(Toolkit):
             querystring = {"status": "upcoming"}
             if email:
                 querystring["attendeeEmail"] = email
-            
 
             response = requests.get(url, headers=self._get_headers(), params=querystring)
             if response.status_code == 200:

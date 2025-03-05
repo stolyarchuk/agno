@@ -51,7 +51,9 @@ class JsonStorage(Storage):
                     if user_id and entity_id:
                         if self.mode == "agent" and data["agent_id"] == entity_id and data["user_id"] == user_id:
                             session_ids.append(data["session_id"])
-                        elif self.mode == "workflow" and data["workflow_id"] == entity_id and data["user_id"] == user_id:
+                        elif (
+                            self.mode == "workflow" and data["workflow_id"] == entity_id and data["user_id"] == user_id
+                        ):
                             session_ids.append(data["session_id"])
                     elif user_id and data["user_id"] == user_id:
                         session_ids.append(data["session_id"])
@@ -74,27 +76,36 @@ class JsonStorage(Storage):
             with open(file, "r", encoding="utf-8") as f:
                 data = self.deserialize(f.read())
                 if user_id or entity_id:
+                    _session: Optional[Union[AgentSession, WorkflowSession]] = None
+
                     if user_id and entity_id:
                         if self.mode == "agent" and data["agent_id"] == entity_id and data["user_id"] == user_id:
-                            sessions.append(AgentSession.from_dict(data))
-                        elif self.mode == "workflow" and data["workflow_id"] == entity_id and data["user_id"] == user_id:
-                            sessions.append(WorkflowSession.from_dict(data))
+                            _session = AgentSession.from_dict(data)
+                        elif (
+                            self.mode == "workflow" and data["workflow_id"] == entity_id and data["user_id"] == user_id
+                        ):
+                            _session = WorkflowSession.from_dict(data)
                     elif user_id and data["user_id"] == user_id:
                         if self.mode == "agent":
-                            sessions.append(AgentSession.from_dict(data))
+                            _session = AgentSession.from_dict(data)
                         elif self.mode == "workflow":
-                            sessions.append(WorkflowSession.from_dict(data))
+                            _session = WorkflowSession.from_dict(data)
                     elif entity_id:
                         if self.mode == "agent" and data["agent_id"] == entity_id:
-                            sessions.append(AgentSession.from_dict(data))
+                            _session = AgentSession.from_dict(data)
                         elif self.mode == "workflow" and data["workflow_id"] == entity_id:
-                            sessions.append(WorkflowSession.from_dict(data))
+                            _session = WorkflowSession.from_dict(data)
+
+                    if _session:
+                        sessions.append(_session)
                 else:
                     # No filters applied, add all sessions
                     if self.mode == "agent":
-                        sessions.append(AgentSession.from_dict(data))
+                        _session = AgentSession.from_dict(data)
                     elif self.mode == "workflow":
-                        sessions.append(WorkflowSession.from_dict(data))
+                        _session = WorkflowSession.from_dict(data)
+                    if _session:
+                        sessions.append(_session)
         return sessions
 
     def upsert(self, session: Union[AgentSession, WorkflowSession]) -> Optional[Union[AgentSession, WorkflowSession]]:

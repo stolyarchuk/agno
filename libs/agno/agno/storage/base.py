@@ -5,10 +5,18 @@ from agno.storage.session.base import Session
 
 
 class Storage(ABC):
-    mode: Literal["agent", "workflow"]
+    def __init__(self, mode: Optional[Literal["agent", "workflow"]] = "agent"):
+        self._mode: Literal["agent", "workflow"] = "agent" if mode is None else mode
 
-    def __init__(self, mode: Optional[Literal["agent", "workflow"]] = "agent"):  # type: ignore
-        self.mode = mode
+    @property
+    def mode(self) -> Literal["agent", "workflow"]:
+        """Get the mode of the storage."""
+        return self._mode
+
+    @mode.setter 
+    def mode(self, value: Optional[Literal["agent", "workflow"]]) -> None:
+        """Set the mode of the storage."""
+        self._mode = "agent" if value is None else value
 
     @abstractmethod
     def create(self) -> None:

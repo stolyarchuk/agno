@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Generator
 
 import pytest
-from sqlalchemy import create_engine
 
 from agno.storage.session.agent import AgentSession
 from agno.storage.session.workflow import WorkflowSession
@@ -22,20 +21,12 @@ def temp_db_path() -> Generator[Path, None, None]:
 
 @pytest.fixture
 def agent_storage(temp_db_path: Path) -> SqliteStorage:
-    return SqliteStorage(
-        table_name="agent_sessions",
-        db_file=str(temp_db_path),
-        mode="agent"
-    )
+    return SqliteStorage(table_name="agent_sessions", db_file=str(temp_db_path), mode="agent")
 
 
 @pytest.fixture
 def workflow_storage(temp_db_path: Path) -> SqliteStorage:
-    return SqliteStorage(
-        table_name="workflow_sessions", 
-        db_file=str(temp_db_path),
-        mode="workflow"
-    )
+    return SqliteStorage(table_name="workflow_sessions", db_file=str(temp_db_path), mode="workflow")
 
 
 def test_agent_storage_crud(agent_storage: SqliteStorage):
@@ -51,9 +42,9 @@ def test_agent_storage_crud(agent_storage: SqliteStorage):
         memory={"key": "value"},
         agent_data={"name": "Test Agent"},
         session_data={"state": "active"},
-        extra_data={"custom": "data"}
+        extra_data={"custom": "data"},
     )
-    
+
     saved_session = agent_storage.upsert(session)
     assert saved_session is not None
     assert saved_session.session_id == session.session_id
@@ -92,9 +83,9 @@ def test_workflow_storage_crud(workflow_storage: SqliteStorage):
         memory={"key": "value"},
         workflow_data={"name": "Test Workflow"},
         session_data={"state": "active"},
-        extra_data={"custom": "data"}
+        extra_data={"custom": "data"},
     )
-    
+
     saved_session = workflow_storage.upsert(session)
     assert saved_session is not None
     assert saved_session.session_id == session.session_id
@@ -125,14 +116,15 @@ def test_storage_filtering(agent_storage: SqliteStorage):
     sessions = [
         AgentSession(
             session_id=f"session-{i}",
-            agent_id=f"agent-{i//2 + 1}",  # agent-1, agent-1, agent-2, agent-2
-            user_id=f"user-{i%3 + 1}",     # user-1, user-2, user-3, user-1
+            agent_id=f"agent-{i // 2 + 1}",  # agent-1, agent-1, agent-2, agent-2
+            user_id=f"user-{i % 3 + 1}",  # user-1, user-2, user-3, user-1
             memory={"test": f"memory-{i}"},
             agent_data={"name": f"Agent {i}"},
             session_data={"state": "active"},
-        ) for i in range(4)
+        )
+        for i in range(4)
     ]
-    
+
     for session in sessions:
         agent_storage.upsert(session)
 
@@ -140,7 +132,7 @@ def test_storage_filtering(agent_storage: SqliteStorage):
     for user_id in ["user-1", "user-2", "user-3"]:
         user_sessions = agent_storage.get_all_sessions(user_id=user_id)
         assert all(s.user_id == user_id for s in user_sessions)
-        
+
     # Test filtering by agent_id
     for agent_id in ["agent-1", "agent-2"]:
         agent_sessions = agent_storage.get_all_sessions(entity_id=agent_id)
@@ -166,14 +158,15 @@ def test_workflow_storage_filtering(workflow_storage: SqliteStorage):
     sessions = [
         WorkflowSession(
             session_id=f"session-{i}",
-            workflow_id=f"workflow-{i//2 + 1}",  # workflow-1, workflow-1, workflow-2, workflow-2
-            user_id=f"user-{i%3 + 1}",          # user-1, user-2, user-3, user-1
+            workflow_id=f"workflow-{i // 2 + 1}",  # workflow-1, workflow-1, workflow-2, workflow-2
+            user_id=f"user-{i % 3 + 1}",  # user-1, user-2, user-3, user-1
             memory={"test": f"memory-{i}"},
             workflow_data={"name": f"Workflow {i}"},
             session_data={"state": "active"},
-        ) for i in range(4)
+        )
+        for i in range(4)
     ]
-    
+
     for session in sessions:
         workflow_storage.upsert(session)
 
@@ -181,7 +174,7 @@ def test_workflow_storage_filtering(workflow_storage: SqliteStorage):
     for user_id in ["user-1", "user-2", "user-3"]:
         user_sessions = workflow_storage.get_all_sessions(user_id=user_id)
         assert all(s.user_id == user_id for s in user_sessions)
-        
+
     # Test filtering by workflow_id
     for workflow_id in ["workflow-1", "workflow-2"]:
         workflow_sessions = workflow_storage.get_all_sessions(entity_id=workflow_id)
@@ -199,4 +192,4 @@ def test_workflow_storage_filtering(workflow_storage: SqliteStorage):
     assert len(empty_sessions) == 0
 
     empty_sessions = workflow_storage.get_all_sessions(entity_id="non-existent")
-    assert len(empty_sessions) == 0 
+    assert len(empty_sessions) == 0

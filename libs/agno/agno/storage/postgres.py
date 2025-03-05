@@ -76,9 +76,17 @@ class PostgresStorage(Storage):
         self.table: Table = self.get_table()
         logger.debug(f"Created PostgresStorage: '{self.schema}.{self.table_name}'")
 
-    def set_storage_mode(self, mode: Literal["agent", "workflow"]):
-        self.storage_mode = mode
-        self.table = self.get_table()
+    @property
+    def mode(self) -> Literal["agent", "workflow"]:
+        """Get the mode of the storage."""
+        return super().mode
+
+    @mode.setter
+    def mode(self, value: Optional[Literal["agent", "workflow"]]) -> None:
+        """Set the mode and refresh the table if mode changes."""
+        super(PostgresStorage, type(self)).mode.fset(self, value)
+        if value is not None:
+            self.table = self.get_table()
 
     def get_table_v1(self) -> Table:
         """
@@ -87,63 +95,38 @@ class PostgresStorage(Storage):
         Returns:
             Table: SQLAlchemy Table object representing the schema.
         """
-        if self.storage_mode == "agent":
-            table = Table(
-                self.table_name,
-                self.metadata,
-                # Session UUID: Primary Key
-                Column("session_id", String, primary_key=True),
-                # ID of the agent that this session is associated with
-                Column("agent_id", String),
-                # ID of the user interacting with this agent
-                Column("user_id", String),
-                # Agent Memory
-                Column("memory", postgresql.JSONB),
-                # Agent Data
+        # Common columns for both agent and workflow modes
+        common_columns = [
+            Column("session_id", String, primary_key=True),
+            Column("user_id", String, index=True),
+            Column("memory", postgresql.JSONB),
+            Column("session_data", postgresql.JSONB),
+            Column("extra_data", postgresql.JSONB),
+            Column("created_at", BigInteger, server_default=text("(extract(epoch from now()))::bigint")),
+            Column("updated_at", BigInteger, server_onupdate=text("(extract(epoch from now()))::bigint")),
+        ]
+
+        # Mode-specific columns
+        if self.mode == "agent":
+            specific_columns = [
+                Column("agent_id", String, index=True),
                 Column("agent_data", postgresql.JSONB),
-                # Session Data
-                Column("session_data", postgresql.JSONB),
-                # Extra Data stored with this agent
-                Column("extra_data", postgresql.JSONB),
-                # The Unix timestamp of when this session was created.
-                Column("created_at", BigInteger, server_default=text("(extract(epoch from now()))::bigint")),
-                # The Unix timestamp of when this session was last updated.
-                Column("updated_at", BigInteger, server_onupdate=text("(extract(epoch from now()))::bigint")),
-                extend_existing=True,
-            )
+            ]
         else:
-            table = Table(
-                self.table_name,
-                self.metadata,
-                # Session UUID: Primary Key
-                Column("session_id", String, primary_key=True),
-                # ID of the workflow that this session is associated with
-                Column("workflow_id", String),
-                # ID of the user interacting with this workflow
-                Column("user_id", String),
-                # Workflow Memory
-                Column("memory", postgresql.JSONB),
-                # Workflow Data
+            specific_columns = [
+                Column("workflow_id", String, index=True),
                 Column("workflow_data", postgresql.JSONB),
-                # Session Data
-                Column("session_data", postgresql.JSONB),
-                # Extra Data
-                Column("extra_data", postgresql.JSONB),
-                # The Unix timestamp of when this session was created.
-                Column("created_at", BigInteger, default=lambda: int(time.time())),
-                # The Unix timestamp of when this session was last updated.
-                Column("updated_at", BigInteger, onupdate=lambda: int(time.time())),
-                extend_existing=True,
-            )
+            ]
 
-        # Add indexes
-        Index(f"idx_{self.table_name}_session_id", table.c.session_id)
-        Index(f"idx_{self.table_name}_user_id", table.c.user_id)
-
-        if self.storage_mode == "agent":
-            Index(f"idx_{self.table_name}_agent_id", table.c.agent_id)
-        else:
-            Index(f"idx_{self.table_name}_workflow_id", table.c.workflow_id)
+        # Create table with all columns
+        table = Table(
+            self.table_name,
+            self.metadata,
+            *common_columns,
+            *specific_columns,
+            extend_existing=True,
+            schema=self.schema
+        )
 
         return table
 
@@ -169,9 +152,22 @@ class PostgresStorage(Storage):
         Returns:
             bool: True if the table exists, False otherwise.
         """
-        logger.debug(f"Checking if table exists: {self.table.name}")
         try:
-            return self.inspector.has_table(self.table.name, schema=self.schema)
+            # Refresh inspector to ensure we have the latest metadata
+            self.inspector = inspect(self.db_engine)
+            
+            # Check both schema and table existence
+            if self.schema is not None:
+                # First check if schema exists
+                schemas = self.inspector.get_schema_names()
+                if self.schema not in schemas:
+                    logger.debug(f"Schema '{self.schema}' does not exist")
+                    return False
+                
+            exists = self.inspector.has_table(self.table.name, schema=self.schema)
+            logger.debug(f"Table '{self.table.fullname}' does {'not' if not exists else ''} exist")
+            return exists
+            
         except Exception as e:
             logger.error(f"Error checking if table exists: {e}")
             return False
@@ -186,10 +182,13 @@ class PostgresStorage(Storage):
                     if self.schema is not None:
                         logger.debug(f"Creating schema: {self.schema}")
                         sess.execute(text(f"CREATE SCHEMA IF NOT EXISTS {self.schema};"))
+
                 logger.debug(f"Creating table: {self.table_name}")
+                # Create table with new indexes
                 self.table.create(self.db_engine, checkfirst=True)
             except Exception as e:
                 logger.error(f"Could not create table: '{self.table.fullname}': {e}")
+                raise
 
     def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
@@ -208,15 +207,17 @@ class PostgresStorage(Storage):
                 if user_id:
                     stmt = stmt.where(self.table.c.user_id == user_id)
                 result = sess.execute(stmt).fetchone()
-                if self.storage_mode == "agent":
+                if self.mode == "agent":
                     return AgentSession.from_dict(result._mapping) if result is not None else None
                 else:
                     return WorkflowSession.from_dict(result._mapping) if result is not None else None
         except Exception as e:
-            logger.debug(f"Exception reading from table: {e}")
-            logger.debug(f"Table does not exist: {self.table.name}")
-            logger.debug("Creating table for future transactions")
-            self.create()
+            if "does not exist" in str(e):
+                logger.debug(f"Table does not exist: {self.table.name}")
+                logger.debug("Creating table for future transactions")
+                self.create()
+            else:
+                logger.debug(f"Exception reading from table: {e}")
         return None
 
     def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
@@ -237,7 +238,7 @@ class PostgresStorage(Storage):
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
                 if entity_id is not None:
-                    if self.storage_mode == "agent":
+                    if self.mode == "agent":
                         stmt = stmt.where(self.table.c.agent_id == entity_id)
                     else:
                         stmt = stmt.where(self.table.c.workflow_id == entity_id)
@@ -274,7 +275,7 @@ class PostgresStorage(Storage):
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
                 if entity_id is not None:
-                    if self.storage_mode == "agent":
+                    if self.mode == "agent":
                         stmt = stmt.where(self.table.c.agent_id == entity_id)
                     else:
                         stmt = stmt.where(self.table.c.workflow_id == entity_id)
@@ -283,12 +284,10 @@ class PostgresStorage(Storage):
                 # execute query
                 rows = sess.execute(stmt).fetchall()
                 if rows is not None:
-                    return [
-                        AgentSession.from_dict(row._mapping)
-                        if self.storage_mode == "agent"
-                        else WorkflowSession.from_dict(row._mapping)
-                        for row in rows
-                    ]
+                    if self.mode == "agent":
+                        return [AgentSession.from_dict(row._mapping) for row in rows]  # type: ignore
+                    else:
+                        return [WorkflowSession.from_dict(row._mapping) for row in rows]  # type: ignore
                 else:
                     return []
         except Exception as e:
@@ -314,13 +313,13 @@ class PostgresStorage(Storage):
         try:
             with self.Session() as sess, sess.begin():
                 # Create an insert statement
-                if self.storage_mode == "agent":
+                if self.mode == "agent":
                     stmt = postgresql.insert(self.table).values(
                         session_id=session.session_id,
-                        agent_id=session.agent_id,
+                        agent_id=session.agent_id,  # type: ignore
                         user_id=session.user_id,
                         memory=session.memory,
-                        agent_data=session.agent_data,
+                        agent_data=session.agent_data,  # type: ignore
                         session_data=session.session_data,
                         extra_data=session.extra_data,
                     )
@@ -329,10 +328,10 @@ class PostgresStorage(Storage):
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=dict(
-                            agent_id=session.agent_id,
+                            agent_id=session.agent_id,  # type: ignore
                             user_id=session.user_id,
                             memory=session.memory,
-                            agent_data=session.agent_data,
+                            agent_data=session.agent_data,  # type: ignore
                             session_data=session.session_data,
                             extra_data=session.extra_data,
                             updated_at=int(time.time()),
@@ -341,10 +340,10 @@ class PostgresStorage(Storage):
                 else:
                     stmt = postgresql.insert(self.table).values(
                         session_id=session.session_id,
-                        workflow_id=session.workflow_id,
+                        workflow_id=session.workflow_id,  # type: ignore
                         user_id=session.user_id,
                         memory=session.memory,
-                        workflow_data=session.workflow_data,
+                        workflow_data=session.workflow_data,  # type: ignore
                         session_data=session.session_data,
                         extra_data=session.extra_data,
                     )
@@ -353,10 +352,10 @@ class PostgresStorage(Storage):
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=dict(
-                            workflow_id=session.workflow_id,
+                            workflow_id=session.workflow_id,  # type: ignore
                             user_id=session.user_id,
                             memory=session.memory,
-                            workflow_data=session.workflow_data,
+                            workflow_data=session.workflow_data,  # type: ignore
                             session_data=session.session_data,
                             extra_data=session.extra_data,
                             updated_at=int(time.time()),

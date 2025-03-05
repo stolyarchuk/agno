@@ -38,9 +38,9 @@ def test_agent_storage_crud(agent_storage: JsonStorage, temp_dir: Path):
         memory={"key": "value"},
         agent_data={"name": "Test Agent"},
         session_data={"state": "active"},
-        extra_data={"custom": "data"}
+        extra_data={"custom": "data"},
     )
-    
+
     saved_session = agent_storage.upsert(session)
     assert saved_session is not None
     assert saved_session.session_id == session.session_id
@@ -77,9 +77,9 @@ def test_workflow_storage_crud(workflow_storage: JsonStorage, temp_dir: Path):
         memory={"key": "value"},
         workflow_data={"name": "Test Workflow"},
         session_data={"state": "active"},
-        extra_data={"custom": "data"}
+        extra_data={"custom": "data"},
     )
-    
+
     saved_session = workflow_storage.upsert(session)
     assert saved_session is not None
     assert saved_session.session_id == session.session_id
@@ -110,9 +110,10 @@ def test_storage_filtering(agent_storage: JsonStorage):
             session_id=f"session-{i}",
             agent_id="agent-1" if i < 2 else "agent-2",
             user_id="user-1" if i % 2 == 0 else "user-2",
-        ) for i in range(4)
+        )
+        for i in range(4)
     ]
-    
+
     for session in sessions:
         agent_storage.upsert(session)
 
@@ -143,10 +144,11 @@ def test_workflow_storage_filtering(workflow_storage: JsonStorage):
             memory={"key": f"value-{i}"},
             workflow_data={"name": f"Test Workflow {i}"},
             session_data={"state": "active"},
-            extra_data={"custom": f"data-{i}"}
-        ) for i in range(4)
+            extra_data={"custom": f"data-{i}"},
+        )
+        for i in range(4)
     ]
-    
+
     for session in sessions:
         workflow_storage.upsert(session)
 
@@ -171,4 +173,4 @@ def test_workflow_storage_filtering(workflow_storage: JsonStorage):
     assert len(empty_sessions) == 0
 
     empty_sessions = workflow_storage.get_all_sessions(entity_id="non-existent")
-    assert len(empty_sessions) == 0 
+    assert len(empty_sessions) == 0

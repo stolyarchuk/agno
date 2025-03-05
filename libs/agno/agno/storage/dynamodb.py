@@ -262,6 +262,7 @@ class DynamoDbStorage(Storage):
                 items = response.get("Items", [])
                 for item in items:
                     item = self._deserialize_item(item)
+                    _session: Optional[Union[AgentSession, WorkflowSession]] = None
                     if self.mode == "agent":
                         _session = AgentSession.from_dict(item)
                     else:
@@ -287,9 +288,9 @@ class DynamoDbStorage(Storage):
                 for item in items:
                     item = self._deserialize_item(item)
                     if self.mode == "agent":
-                        _session = AgentSession.from_dict(item)
+                        _session = AgentSession.from_dict(item)  # type: ignore
                     else:
-                        _session = WorkflowSession.from_dict(item)
+                        _session = WorkflowSession.from_dict(item)  # type: ignore
                     if _session is not None:
                         sessions.append(_session)
             else:
@@ -301,9 +302,9 @@ class DynamoDbStorage(Storage):
                 for item in items:
                     item = self._deserialize_item(item)
                     if self.mode == "agent":
-                        _session = AgentSession.from_dict(item)
+                        _session = AgentSession.from_dict(item)  # type: ignore
                     else:
-                        _session = WorkflowSession.from_dict(item)
+                        _session = WorkflowSession.from_dict(item)  # type: ignore
                     if _session is not None:
                         sessions.append(_session)
         except Exception as e:

@@ -8,9 +8,9 @@ try:
     from sqlalchemy.inspection import inspect
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.schema import Column, MetaData, Table
+    from sqlalchemy.sql import text
     from sqlalchemy.sql.expression import select
     from sqlalchemy.types import String
-    from sqlalchemy.sql import text
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
@@ -78,6 +78,18 @@ class SqliteStorage(Storage):
         self.Session: sessionmaker[Session] = sessionmaker(bind=self.db_engine)
         # Database table for storage
         self.table: Table = self.get_table()
+
+    @property
+    def mode(self) -> Optional[Literal["agent", "workflow"]]:
+        """Get the mode of the storage."""
+        return super().mode
+
+    @mode.setter 
+    def mode(self, value: Optional[Literal["agent", "workflow"]]) -> None:
+        """Set the mode and refresh the table if mode changes."""
+        super(SqliteStorage, type(self)).mode.fset(self, value)  # type: ignore
+        if value is not None:
+            self.table = self.get_table()
 
     def get_table_v1(self) -> Table:
         """
@@ -164,7 +176,7 @@ class SqliteStorage(Storage):
             with self.Session() as sess:
                 result = sess.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"),
-                    {"table_name": self.table_name}
+                    {"table_name": self.table_name},
                 ).scalar()
                 return result is not None
         except Exception as e:
@@ -209,10 +221,11 @@ class SqliteStorage(Storage):
                 else:
                     return WorkflowSession.from_dict(result._mapping) if result is not None else None  # type: ignore
         except Exception as e:
-            logger.debug(f"Exception reading from table: {e}")
-            logger.debug(f"Table does not exist: {self.table.name}")
-            logger.debug("Creating table for future transactions")
-            self.create()
+            if "no such table" in str(e):
+                logger.debug(f"Table does not exist: {self.table.name}")
+                self.create()
+            else:
+                logger.debug(f"Exception reading from table: {e}")
         return None
 
     def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
@@ -243,10 +256,11 @@ class SqliteStorage(Storage):
                 rows = sess.execute(stmt).fetchall()
                 return [row[0] for row in rows] if rows is not None else []
         except Exception as e:
-            logger.debug(f"Exception reading from table: {e}")
-            logger.debug(f"Table does not exist: {self.table.name}")
-            logger.debug("Creating table for future transactions")
-            self.create()
+            if "no such table" in str(e):
+                logger.debug(f"Table does not exist: {self.table.name}")
+                self.create()
+            else:
+                logger.debug(f"Exception reading from table: {e}")
         return []
 
     def get_all_sessions(
@@ -278,19 +292,18 @@ class SqliteStorage(Storage):
                 # execute query
                 rows = sess.execute(stmt).fetchall()
                 if rows is not None:
-                    return [
-                        AgentSession.from_dict(row._mapping)
-                        if self.mode == "agent"
-                        else WorkflowSession.from_dict(row._mapping)
-                        for row in rows
-                    ]
+                    if self.mode == "agent":
+                        return [AgentSession.from_dict(row._mapping) for row in rows]  # type: ignore
+                    else:
+                        return [WorkflowSession.from_dict(row._mapping) for row in rows]  # type: ignore
                 else:
                     return []
         except Exception as e:
-            logger.debug(f"Exception reading from table: {e}")
-            logger.debug(f"Table does not exist: {self.table.name}")
-            logger.debug("Creating table for future transactions")
-            self.create()
+            if "no such table" in str(e):
+                logger.debug(f"Table does not exist: {self.table.name}")
+                self.create()
+            else:
+                logger.debug(f"Exception reading from table: {e}")
         return []
 
     def upsert(
@@ -312,10 +325,10 @@ class SqliteStorage(Storage):
                     # Create an insert statement
                     stmt = sqlite.insert(self.table).values(
                         session_id=session.session_id,
-                        agent_id=session.agent_id,
+                        agent_id=session.agent_id,  # type: ignore
                         user_id=session.user_id,
                         memory=session.memory,
-                        agent_data=session.agent_data,
+                        agent_data=session.agent_data,  # type: ignore
                         session_data=session.session_data,
                         extra_data=session.extra_data,
                     )
@@ -325,10 +338,10 @@ class SqliteStorage(Storage):
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=dict(
-                            agent_id=session.agent_id,
+                            agent_id=session.agent_id,  # type: ignore
                             user_id=session.user_id,
                             memory=session.memory,
-                            agent_data=session.agent_data,
+                            agent_data=session.agent_data,  # type: ignore
                             session_data=session.session_data,
                             extra_data=session.extra_data,
                             updated_at=int(time.time()),
@@ -338,10 +351,10 @@ class SqliteStorage(Storage):
                     # Create an insert statement
                     stmt = sqlite.insert(self.table).values(
                         session_id=session.session_id,
-                        workflow_id=session.workflow_id,
+                        workflow_id=session.workflow_id,  # type: ignore
                         user_id=session.user_id,
                         memory=session.memory,
-                        workflow_data=session.workflow_data,
+                        workflow_data=session.workflow_data,  # type: ignore
                         session_data=session.session_data,
                         extra_data=session.extra_data,
                     )
@@ -351,10 +364,10 @@ class SqliteStorage(Storage):
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["session_id"],
                         set_=dict(
-                            workflow_id=session.workflow_id,
+                            workflow_id=session.workflow_id,  # type: ignore
                             user_id=session.user_id,
                             memory=session.memory,
-                            workflow_data=session.workflow_data,
+                            workflow_data=session.workflow_data,  # type: ignore
                             session_data=session.session_data,
                             extra_data=session.extra_data,
                             updated_at=int(time.time()),
@@ -363,13 +376,14 @@ class SqliteStorage(Storage):
 
                 sess.execute(stmt)
         except Exception as e:
-            logger.debug(f"Exception upserting into table: {e}")
             if create_and_retry and not self.table_exists():
                 logger.debug(f"Table does not exist: {self.table.name}")
                 logger.debug("Creating table and retrying upsert")
                 self.create()
                 return self.upsert(session, create_and_retry=False)
-            return None
+            else:
+                logger.debug(f"Exception upserting into table: {e}")
+                return None
         return self.read(session_id=session.session_id)
 
     def delete_session(self, session_id: Optional[str] = None):

@@ -136,7 +136,7 @@ class MongoDbStorage(Storage):
                     query["workflow_id"] = entity_id
 
             cursor = self.collection.find(query).sort("created_at", -1)
-            sessions = []
+            sessions: List[Union[AgentSession, WorkflowSession]] = []
             for doc in cursor:
                 # Remove MongoDB _id before converting to AgentSession
                 doc.pop("_id", None)

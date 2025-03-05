@@ -1,21 +1,21 @@
 import os
-import streamlit as st
 from pathlib import Path
-from prompt import extraction_prompt
 
+import streamlit as st
 from agno.agent import Agent
+from agno.media import Image
 from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
 from agno.utils.log import logger
-from agno.media import Image
-from image_extraction import image_processing_agent
+from dotenv import load_dotenv
+from image_extraction import chat_followup_agent, image_processing_agent
+from prompt import extraction_prompt
 from utils import (
     about_widget,
     add_message,
     rename_session_widget,
     session_selector_widget,
 )
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -53,34 +53,38 @@ def main():
         <h1 class='title'>VisioAI 🖼️</h1>
         <p class='subtitle'>Your AI-powered smart image analysis agent</p>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     ####################################################################
     # Sidebar Configuration
     ####################################################################
     with st.sidebar:
-        st.markdown("#### 🖼️ Image Processing Queries")
+        st.markdown("#### 🖼️ Smart Image Analysis Agent")
 
         # Model Selection
-        model_choice = st.selectbox("🔍 Select Model Provider", ["OpenAI", "Gemini"], index=0)
+        model_choice = st.selectbox(
+            "🔍 Select Model Provider", ["OpenAI", "Gemini"], index=0
+        )
 
         # Mode Selection
         mode = st.radio("⚙️ Extraction Mode", ["Auto", "Manual", "Hybrid"], index=0)
 
-        # Manual/Hybrid Mode Instructions
-        instruction = None
-        if mode in ["Manual", "Hybrid"]:
-            instruction = st.text_area("📝 Enter Extraction Instructions", placeholder="Extract number plates...")
+        # Web Search Option (Enable/Disable DuckDuckGo)
+        enable_search_option = st.radio("🌐 Enable Web Search?", ["Yes", "No"], index=1)
+        enable_search = True if enable_search_option == "Yes" else False
 
         # Session Management
         user_id = st.text_input("👤 User ID (For session tracking)", value="user_123")
-        session_id = st.text_input("📂 Session ID (To keep chat history)", value="session_1")
+        session_id = st.text_input(
+            "📂 Session ID (To keep chat history)", value="session_1"
+        )
 
     ####################################################################
     # Store selections in session_state
     ####################################################################
     st.session_state["model_choice"] = model_choice
+    st.session_state["enable_search"] = enable_search
     st.session_state["user_id"] = user_id
     st.session_state["session_id"] = session_id
 
@@ -100,13 +104,35 @@ def main():
         "image_agent" not in st.session_state
         or st.session_state["image_agent"] is None
         or st.session_state.get("current_model") != model_choice
+        or st.session_state.get("search_enabled") != enable_search
     ):
         logger.info("---*--- Creating new Image Processing Agent ---*---")
-        image_agent = image_processing_agent(model=model, user_id=user_id)
+        image_agent = image_processing_agent(
+            model=model, user_id=user_id, enable_search=enable_search
+        )
         st.session_state["image_agent"] = image_agent
         st.session_state["current_model"] = model_choice
     else:
         image_agent = st.session_state["image_agent"]
+
+    ####################################################################
+    # Initialize Followup Chat Agent
+    ####################################################################
+    chat_agent: Agent
+    if (
+        "chat_agent" not in st.session_state
+        or st.session_state["chat_agent"] is None
+        or st.session_state.get("current_model") != model_choice
+        or st.session_state.get("search_enabled") != enable_search
+    ):
+        logger.info("---*--- Creating new Chat Agent ---*---")
+        chat_agent = chat_followup_agent(
+            model=model, user_id=user_id, enable_search=enable_search
+        )
+        st.session_state["chat_agent"] = chat_agent
+        st.session_state["search_enabled"] = enable_search
+    else:
+        chat_agent = st.session_state["chat_agent"]
 
     ####################################################################
     # Load Agent Session from the Database
@@ -141,7 +167,9 @@ def main():
     ####################################################################
     # Image Upload Section
     ####################################################################
-    uploaded_file = st.file_uploader("📤 Upload an Image 📷", type=["png", "jpg", "jpeg"])
+    uploaded_file = st.file_uploader(
+        "📤 Upload an Image 📷", type=["png", "jpg", "jpeg"]
+    )
     image_path = None
     if uploaded_file:
         temp_dir = Path("temp_images")
@@ -151,10 +179,41 @@ def main():
         with open(image_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-    logger.info(f"✅ Image successfully saved at: {image_path}")
+        logger.info(f"✅ Image successfully saved at: {image_path}")
+
+        # Show instruction input only for Manual & Hybrid Mode
+        if mode in ["Manual", "Hybrid"]:
+            instruction = st.text_area(
+                "📝 Enter Extraction Instructions",
+                placeholder="Extract number plates...",
+            )
+        else:
+            instruction = None
+
+        # Run Image Processing Agent after Image Upload & Instruction Input
+        if (
+            mode in ["Auto", "Manual", "Hybrid"]
+            and image_path
+            and (mode == "Auto" or instruction)
+        ):
+            st.success("📤 Processing Image! Extracting image data...")
+
+            extracted_data = image_agent.run(
+                extraction_prompt,
+                images=[Image(filepath=image_path)],
+                instructions=instruction if instruction else None,
+            )
+
+            # Store last extracted response for chat follow-ups
+            st.session_state["last_image_response"] = extracted_data.content
+
+            logger.info(f"Extracted Data Response: {extracted_data.content}")
+
+            st.write("### Extracted Image Insights:")
+            st.write(extracted_data.content)
 
     ####################################################################
-    # **1️⃣ Display Chat History First**
+    # Display Chat History First
     ####################################################################
     for message in st.session_state["messages"]:
         if message["role"] in ["user", "assistant"]:
@@ -164,76 +223,69 @@ def main():
                     st.write(_content)
 
     ####################################################################
-    # **2️⃣ Auto Mode - Automatically Extract Image Data**
+    # Follow-up Chat Section
     ####################################################################
-    if mode == "Auto" and uploaded_file:
-        st.success("📤 Auto Mode enabled! Extracting image data...")
+    st.markdown("---")
+    st.markdown("### 💬 Chat with VisioAI")
 
-        extracted_data = image_agent.run(
-            extraction_prompt, images=[Image(filepath=image_path)]
-        )
-        logger.info(f"Extracted Data Response: {extracted_data.content}")
-
-        # Show extracted data
-        st.write(extracted_data.content)
-
-        # Save the response in chat history
-        add_message("assistant", extracted_data.content)
-
-    ####################################################################
-    # **3️⃣ Handle User Chat Input**
-    ####################################################################
-    if prompt := st.chat_input("💬 Ask about the image or anything else..."):
+    if prompt := st.chat_input(
+        "💬 Ask follow-up questions on the image extracted data..."
+    ):
         add_message("user", prompt)
 
     ####################################################################
-    # **4️⃣ Process User Queries & Stream Responses**
+    # Process User Queries & Stream Responses
     ####################################################################
-    last_message = st.session_state["messages"][-1] if st.session_state["messages"] else None
-    if last_message and last_message.get("role") == "user":
-        question = last_message["content"]
-        with st.chat_message("assistant"):
-            response_container = st.empty()
-            with st.spinner("🤔 Processing..."):
-                response = ""
-                try:
-                    # Run agent and stream response
-                    if uploaded_file:
-                        extracted_data = image_agent.run(
-                            extraction_prompt,
-                            images=[Image(filepath=image_path)],
-                            instructions=instruction,
-                            stream=True
-                        )
-                    else:
-                        extracted_data = image_agent.run(
-                            extraction_prompt,
-                            images=[Image(filepath=image_path)],
-                            instructions=question,
-                            stream=True
+    last_message = (
+        st.session_state["messages"][-1] if st.session_state["messages"] else None
+    )
+
+    if last_message and last_message["role"] == "user":
+        user_question = last_message["content"]
+
+        # Ensure Image Agent has extracted data before running chat agent
+        if (
+            "last_image_response" not in st.session_state
+            or not st.session_state["last_image_response"]
+        ):
+            st.warning(
+                "⚠️ No extracted insights available. Please process an image first."
+            )
+        else:
+            with st.chat_message("assistant"):
+                response_container = st.empty()
+                with st.spinner("🤔 Processing follow-up question..."):
+                    try:
+                        chat_response = chat_agent.run(
+                            f"""You are a chat agent who answers followup questions based on extracted image data.
+Understand the requirement properly and then answer the question correctly.
+
+Extracted Image Data: {st.session_state['last_image_response']}
+
+Use the above image insights to answer the following question.
+Answer the following question from the above given extracted image data: {user_question}""",
+                            stream=True,
                         )
 
-                    # Stream updates in real-time
-                    for chunk in extracted_data:
-                        if chunk and chunk.content:
-                            response += chunk.content
-                            response_container.markdown(response)
+                        response_text = ""
+                        for chunk in chat_response:
+                            if chunk and chunk.content:
+                                response_text += chunk.content
+                                response_container.markdown(response_text)
 
-                    # Save assistant response in chat history
-                    add_message("assistant", response)
-                except Exception as e:
-                    error_message = f"❌ Error: {str(e)}"
-                    add_message("assistant", error_message)
-                    st.error(error_message)
+                        add_message("assistant", response_text)
+
+                    except Exception as e:
+                        error_message = f"❌ Error: {str(e)}"
+                        add_message("assistant", error_message)
+                        st.error(error_message)
 
     ####################################################################
     # Rename Sessions
     ####################################################################
     rename_session_widget(image_agent)
 
-    ####################################################################
     # About Section
-    ####################################################################
     about_widget()
 
 

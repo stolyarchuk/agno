@@ -2,7 +2,7 @@ from pathlib import Path
 
 import streamlit as st
 from agno.utils.string import hash_string_sha256
-from game_generator import GameGenerator, SqliteWorkflowStorage
+from game_generator import GameGenerator, SqliteStorage
 
 st.set_page_config(
     page_title="HTML5 Game Generator",
@@ -43,7 +43,7 @@ def main() -> None:
                 hash_of_description = hash_string_sha256(game_description)
                 game_generator = GameGenerator(
                     session_id=f"game-gen-{hash_of_description}",
-                    storage=SqliteWorkflowStorage(
+                    storage=SqliteStorage(
                         table_name="game_generator_workflows",
                         db_file="tmp/workflows.db",
                     ),

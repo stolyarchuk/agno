@@ -298,7 +298,7 @@ def get_sync_playground_router(
             return JSONResponse(status_code=404, content="Agent does not have storage enabled.")
 
         agent_sessions: List[AgentSessionsResponse] = []
-        all_agent_sessions: List[AgentSession] = agent.storage.get_all_sessions(user_id=user_id)
+        all_agent_sessions: List[AgentSession] = agent.storage.get_all_sessions(user_id=user_id)  # type: ignore
         for session in all_agent_sessions:
             title = get_session_title(session)
             agent_sessions.append(

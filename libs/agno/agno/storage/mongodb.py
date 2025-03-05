@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 from uuid import UUID
 
 try:
@@ -12,6 +12,7 @@ except ImportError:
 
 from agno.storage.base import Storage
 from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 
 
@@ -22,6 +23,7 @@ class MongoDbStorage(Storage):
         db_url: Optional[str] = None,
         db_name: str = "agno",
         client: Optional[MongoClient] = None,
+        mode: Optional[Literal["agent", "workflow"]] = "agent",
     ):
         """
         This class provides agent storage using MongoDB.
@@ -32,6 +34,7 @@ class MongoDbStorage(Storage):
             db_name: Name of the database
             client: Optional existing MongoDB client
         """
+        super().__init__(mode)
         self._client: Optional[MongoClient] = client
         if self._client is None and db_url is not None:
             self._client = MongoClient(db_url)
@@ -52,19 +55,22 @@ class MongoDbStorage(Storage):
             # Create indexes
             self.collection.create_index("session_id", unique=True)
             self.collection.create_index("user_id")
-            self.collection.create_index("agent_id")
             self.collection.create_index("created_at")
+            if self.mode == "agent":
+                self.collection.create_index("agent_id")
+            elif self.mode == "workflow":
+                self.collection.create_index("workflow_id")
         except PyMongoError as e:
             logger.error(f"Error creating indexes: {e}")
             raise
 
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
-        """Read an agent session from MongoDB
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
+        """Read a Session from MongoDB
         Args:
             session_id: ID of the session to read
             user_id: ID of the user to read
         Returns:
-            AgentSession: The session if found, otherwise None
+            Optional[Union[AgentSession, WorkflowSession]]: The session if found, otherwise None
         """
         try:
             query = {"session_id": session_id}
@@ -75,17 +81,20 @@ class MongoDbStorage(Storage):
             if doc:
                 # Remove MongoDB _id before converting to AgentSession
                 doc.pop("_id", None)
-                return AgentSession.from_dict(doc)
+                if self.mode == "agent":
+                    return AgentSession.from_dict(doc)
+                elif self.mode == "workflow":
+                    return WorkflowSession.from_dict(doc)
             return None
         except PyMongoError as e:
             logger.error(f"Error reading session: {e}")
             return None
 
-    def get_all_session_ids(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[str]:
+    def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
         """Get all session IDs matching the criteria
         Args:
             user_id: ID of the user to read
-            agent_id: ID of the agent to read
+            entity_id: ID of the entity to read
         Returns:
             List[str]: List of session IDs
         """
@@ -93,8 +102,11 @@ class MongoDbStorage(Storage):
             query = {}
             if user_id is not None:
                 query["user_id"] = user_id
-            if agent_id is not None:
-                query["agent_id"] = agent_id
+            if entity_id is not None:
+                if self.mode == "agent":
+                    query["agent_id"] = entity_id
+                elif self.mode == "workflow":
+                    query["workflow_id"] = entity_id
 
             cursor = self.collection.find(query, {"session_id": 1}).sort("created_at", -1)
 
@@ -103,41 +115,53 @@ class MongoDbStorage(Storage):
             logger.error(f"Error getting session IDs: {e}")
             return []
 
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
+    def get_all_sessions(
+        self, user_id: Optional[str] = None, entity_id: Optional[str] = None
+    ) -> List[Union[AgentSession, WorkflowSession]]:
         """Get all sessions matching the criteria
         Args:
             user_id: ID of the user to read
-            agent_id: ID of the agent to read
+            entity_id: ID of the agent / workflow to read
         Returns:
-            List[AgentSession]: List of sessions
+            List[Union[AgentSession, WorkflowSession]]: List of sessions
         """
         try:
             query = {}
             if user_id is not None:
                 query["user_id"] = user_id
-            if agent_id is not None:
-                query["agent_id"] = agent_id
+            if entity_id is not None:
+                if self.mode == "agent":
+                    query["agent_id"] = entity_id
+                elif self.mode == "workflow":
+                    query["workflow_id"] = entity_id
 
             cursor = self.collection.find(query).sort("created_at", -1)
             sessions = []
             for doc in cursor:
                 # Remove MongoDB _id before converting to AgentSession
                 doc.pop("_id", None)
-                _agent_session = AgentSession.from_dict(doc)
-                if _agent_session is not None:
-                    sessions.append(_agent_session)
+                if self.mode == "agent":
+                    _agent_session = AgentSession.from_dict(doc)
+                    if _agent_session is not None:
+                        sessions.append(_agent_session)
+                elif self.mode == "workflow":
+                    _workflow_session = WorkflowSession.from_dict(doc)
+                    if _workflow_session is not None:
+                        sessions.append(_workflow_session)
             return sessions
         except PyMongoError as e:
             logger.error(f"Error getting sessions: {e}")
             return []
 
-    def upsert(self, session: AgentSession, create_and_retry: bool = True) -> Optional[AgentSession]:
-        """Upsert an agent session
+    def upsert(
+        self, session: Union[AgentSession, WorkflowSession], create_and_retry: bool = True
+    ) -> Optional[Union[AgentSession, WorkflowSession]]:
+        """Upsert a session
         Args:
-            session: AgentSession to upsert
-            create_and_retry: Whether to create a new session if the session_id already exists
+            session (Union[AgentSession, WorkflowSession]): The session to upsert
+            create_and_retry (bool): Whether to create a new session if the session_id already exists
         Returns:
-            AgentSession: The session if upserted, otherwise None
+            Optional[Union[AgentSession, WorkflowSession]]: The upserted session, otherwise None
         """
         try:
             # Convert session to dict and add timestamps

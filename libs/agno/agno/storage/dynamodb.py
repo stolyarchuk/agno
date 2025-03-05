@@ -1,10 +1,11 @@
 import time
 from dataclasses import asdict
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from agno.storage.base import Storage
 from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 
 try:
@@ -24,6 +25,7 @@ class DynamoDbStorage(Storage):
         aws_secret_access_key: Optional[str] = None,
         endpoint_url: Optional[str] = None,
         create_table_if_not_exists: bool = True,
+        mode: Optional[Literal["agent", "workflow"]] = "agent",
     ):
         """
         Initialize the DynamoDbStorage.
@@ -35,7 +37,9 @@ class DynamoDbStorage(Storage):
             aws_secret_access_key (Optional[str]): AWS secret access key.
             endpoint_url (Optional[str]): The complete URL to use for the constructed client.
             create_table_if_not_exists (bool): Whether to create the table if it does not exist.
+            mode (Optional[Literal["agent", "workflow"]]): The mode of the storage.
         """
+        super().__init__(mode)
         self.table_name = table_name
         self.region_name = region_name
         self.endpoint_url = endpoint_url
@@ -71,29 +75,38 @@ class DynamoDbStorage(Storage):
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceNotFoundException":
                 logger.debug(f"Creating table '{self.table_name}'.")
-                # Create the table
-                self.table = self.dynamodb.create_table(
-                    TableName=self.table_name,
-                    KeySchema=[{"AttributeName": "session_id", "KeyType": "HASH"}],
-                    AttributeDefinitions=[
+
+                if self.mode == "agent":
+                    attribute_definitions = [
                         {"AttributeName": "session_id", "AttributeType": "S"},
                         {"AttributeName": "user_id", "AttributeType": "S"},
                         {"AttributeName": "agent_id", "AttributeType": "S"},
                         {"AttributeName": "created_at", "AttributeType": "N"},
-                    ],
-                    GlobalSecondaryIndexes=[
-                        {
-                            "IndexName": "user_id-index",
-                            "KeySchema": [
-                                {"AttributeName": "user_id", "KeyType": "HASH"},
-                                {"AttributeName": "created_at", "KeyType": "RANGE"},
-                            ],
-                            "Projection": {"ProjectionType": "ALL"},
-                            "ProvisionedThroughput": {
-                                "ReadCapacityUnits": 5,
-                                "WriteCapacityUnits": 5,
-                            },
+                    ]
+                else:
+                    attribute_definitions = [
+                        {"AttributeName": "session_id", "AttributeType": "S"},
+                        {"AttributeName": "user_id", "AttributeType": "S"},
+                        {"AttributeName": "workflow_id", "AttributeType": "S"},
+                        {"AttributeName": "created_at", "AttributeType": "N"},
+                    ]
+
+                secondary_indexes = [
+                    {
+                        "IndexName": "user_id-index",
+                        "KeySchema": [
+                            {"AttributeName": "user_id", "KeyType": "HASH"},
+                            {"AttributeName": "created_at", "KeyType": "RANGE"},
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                        "ProvisionedThroughput": {
+                            "ReadCapacityUnits": 5,
+                            "WriteCapacityUnits": 5,
                         },
+                    }
+                ]
+                if self.mode == "agent":
+                    secondary_indexes.append(
                         {
                             "IndexName": "agent_id-index",
                             "KeySchema": [
@@ -105,8 +118,30 @@ class DynamoDbStorage(Storage):
                                 "ReadCapacityUnits": 5,
                                 "WriteCapacityUnits": 5,
                             },
-                        },
-                    ],
+                        }
+                    )
+                else:
+                    secondary_indexes.append(
+                        {
+                            "IndexName": "workflow_id-index",
+                            "KeySchema": [
+                                {"AttributeName": "workflow_id", "KeyType": "HASH"},
+                                {"AttributeName": "created_at", "KeyType": "RANGE"},
+                            ],
+                            "Projection": {"ProjectionType": "ALL"},
+                            "ProvisionedThroughput": {
+                                "ReadCapacityUnits": 5,
+                                "WriteCapacityUnits": 5,
+                            },
+                        }
+                    )
+
+                # Create the table
+                self.table = self.dynamodb.create_table(
+                    TableName=self.table_name,
+                    KeySchema=[{"AttributeName": "session_id", "KeyType": "HASH"}],
+                    AttributeDefinitions=attribute_definitions,
+                    GlobalSecondaryIndexes=secondary_indexes,
                     ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
                 )
                 # Wait until the table exists.
@@ -117,16 +152,16 @@ class DynamoDbStorage(Storage):
         except Exception as e:
             logger.error(f"Exception during table creation: {e}")
 
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
-        Read and return an AgentSession from the database.
+        Read and return a Session from the database.
 
         Args:
             session_id (str): ID of the session to read.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
 
         Returns:
-            Optional[AgentSession]: AgentSession object if found, None otherwise.
+            Optional[Union[AgentSession, WorkflowSession]]: Session object if found, None otherwise.
         """
         try:
             key = {"session_id": session_id}
@@ -138,18 +173,21 @@ class DynamoDbStorage(Storage):
             if item is not None:
                 # Convert Decimal to int or float
                 item = self._deserialize_item(item)
-                return AgentSession.from_dict(item)
+                if self.mode == "agent":
+                    return AgentSession.from_dict(item)
+                elif self.mode == "workflow":
+                    return WorkflowSession.from_dict(item)
         except Exception as e:
             logger.error(f"Error reading session_id '{session_id}' with user_id '{user_id}': {e}")
         return None
 
-    def get_all_session_ids(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[str]:
+    def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
         """
-        Retrieve all session IDs, optionally filtered by user_id and/or agent_id.
+        Retrieve all session IDs, optionally filtered by user_id and/or entity_id.
 
         Args:
             user_id (Optional[str], optional): User ID to filter by. Defaults to None.
-            agent_id (Optional[str], optional): Agent ID to filter by. Defaults to None.
+            entity_id (Optional[str], optional): Entity ID to filter by. Defaults to None.
 
         Returns:
             List[str]: List of session IDs matching the criteria.
@@ -165,13 +203,21 @@ class DynamoDbStorage(Storage):
                 )
                 items = response.get("Items", [])
                 session_ids.extend([item["session_id"] for item in items if "session_id" in item])
-            elif agent_id is not None:
-                # Query using agent_id index
-                response = self.table.query(
-                    IndexName="agent_id-index",
-                    KeyConditionExpression=Key("agent_id").eq(agent_id),
-                    ProjectionExpression="session_id",
-                )
+            elif entity_id is not None:
+                if self.mode == "agent":
+                    # Query using agent_id index
+                    response = self.table.query(
+                        IndexName="agent_id-index",
+                        KeyConditionExpression=Key("agent_id").eq(entity_id),
+                        ProjectionExpression="session_id",
+                    )
+                else:
+                    # Query using workflow_id index
+                    response = self.table.query(
+                        IndexName="workflow_id-index",
+                        KeyConditionExpression=Key("workflow_id").eq(entity_id),
+                        ProjectionExpression="session_id",
+                    )
                 items = response.get("Items", [])
                 session_ids.extend([item["session_id"] for item in items if "session_id" in item])
             else:
@@ -183,45 +229,69 @@ class DynamoDbStorage(Storage):
             logger.error(f"Error retrieving session IDs: {e}")
         return session_ids
 
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
+    def get_all_sessions(
+        self, user_id: Optional[str] = None, entity_id: Optional[str] = None
+    ) -> List[Union[AgentSession, WorkflowSession]]:
         """
-        Retrieve all sessions, optionally filtered by user_id and/or agent_id.
+        Retrieve all sessions, optionally filtered by user_id and/or entity_id.
 
         Args:
             user_id (Optional[str], optional): User ID to filter by. Defaults to None.
-            agent_id (Optional[str], optional): Agent ID to filter by. Defaults to None.
+            entity_id (Optional[str], optional): Entity ID to filter by. Defaults to None.
 
         Returns:
-            List[AgentSession]: List of AgentSession objects matching the criteria.
+            List[Union[AgentSession, WorkflowSession]]: List of AgentSession or WorkflowSession objects matching the criteria.
         """
-        sessions: List[AgentSession] = []
+        sessions: List[Union[AgentSession, WorkflowSession]] = []
         try:
             if user_id is not None:
-                # Query using user_id index
-                response = self.table.query(
-                    IndexName="user_id-index",
-                    KeyConditionExpression=Key("user_id").eq(user_id),
-                    ProjectionExpression="session_id, agent_id, user_id, memory, agent_data, session_data, extra_data, created_at, updated_at",
-                )
+                if self.mode == "agent":
+                    # Query using user_id index
+                    response = self.table.query(
+                        IndexName="user_id-index",
+                        KeyConditionExpression=Key("user_id").eq(user_id),
+                        ProjectionExpression="session_id, agent_id, user_id, memory, agent_data, session_data, extra_data, created_at, updated_at",
+                    )
+                else:
+                    # Query using user_id index
+                    response = self.table.query(
+                        IndexName="user_id-index",
+                        KeyConditionExpression=Key("user_id").eq(user_id),
+                        ProjectionExpression="session_id, workflow_id, user_id, memory, workflow_data, session_data, extra_data, created_at, updated_at",
+                    )
                 items = response.get("Items", [])
                 for item in items:
                     item = self._deserialize_item(item)
-                    _agent_session = AgentSession.from_dict(item)
-                    if _agent_session is not None:
-                        sessions.append(_agent_session)
-            elif agent_id is not None:
-                # Query using agent_id index
-                response = self.table.query(
-                    IndexName="agent_id-index",
-                    KeyConditionExpression=Key("agent_id").eq(agent_id),
-                    ProjectionExpression="session_id, agent_id, user_id, memory, agent_data, session_data, extra_data, created_at, updated_at",
-                )
+                    if self.mode == "agent":
+                        _session = AgentSession.from_dict(item)
+                    else:
+                        _session = WorkflowSession.from_dict(item)  # type: ignore
+                    if _session is not None:
+                        sessions.append(_session)
+            elif entity_id is not None:
+                if self.mode == "agent":
+                    # Query using agent_id index
+                    response = self.table.query(
+                        IndexName="agent_id-index",
+                        KeyConditionExpression=Key("agent_id").eq(entity_id),
+                        ProjectionExpression="session_id, agent_id, user_id, memory, agent_data, session_data, extra_data, created_at, updated_at",
+                    )
+                else:
+                    # Query using workflow_id index
+                    response = self.table.query(
+                        IndexName="workflow_id-index",
+                        KeyConditionExpression=Key("workflow_id").eq(entity_id),
+                        ProjectionExpression="session_id, workflow_id, user_id, memory, workflow_data, session_data, extra_data, created_at, updated_at",
+                    )
                 items = response.get("Items", [])
                 for item in items:
                     item = self._deserialize_item(item)
-                    _agent_session = AgentSession.from_dict(item)
-                    if _agent_session is not None:
-                        sessions.append(_agent_session)
+                    if self.mode == "agent":
+                        _session = AgentSession.from_dict(item)
+                    else:
+                        _session = WorkflowSession.from_dict(item)
+                    if _session is not None:
+                        sessions.append(_session)
             else:
                 # Scan the whole table
                 response = self.table.scan(
@@ -230,22 +300,25 @@ class DynamoDbStorage(Storage):
                 items = response.get("Items", [])
                 for item in items:
                     item = self._deserialize_item(item)
-                    _agent_session = AgentSession.from_dict(item)
-                    if _agent_session is not None:
-                        sessions.append(_agent_session)
+                    if self.mode == "agent":
+                        _session = AgentSession.from_dict(item)
+                    else:
+                        _session = WorkflowSession.from_dict(item)
+                    if _session is not None:
+                        sessions.append(_session)
         except Exception as e:
             logger.error(f"Error retrieving sessions: {e}")
         return sessions
 
-    def upsert(self, session: AgentSession) -> Optional[AgentSession]:
+    def upsert(self, session: Union[AgentSession, WorkflowSession]) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
-        Create or update an AgentSession in the database.
+        Create or update a Session in the database.
 
         Args:
-            session (AgentSession): The session data to upsert.
+            session (Union[AgentSession, WorkflowSession]): The session data to upsert.
 
         Returns:
-            Optional[AgentSession]: The upserted AgentSession, or None if operation failed.
+            Optional[Union[AgentSession, WorkflowSession]]: The upserted Session, or None if operation failed.
         """
         try:
             item = asdict(session)

@@ -77,9 +77,7 @@ image_agent = Agent(
     debug_mode=True,
     add_history_to_messages=True,
     add_datetime_to_instructions=True,
-    storage=SqliteStorage(
-        table_name="image_agent", db_file=image_agent_storage_file
-    ),
+    storage=SqliteStorage(table_name="image_agent", db_file=image_agent_storage_file),
 )
 
 youtube_agent = Agent(

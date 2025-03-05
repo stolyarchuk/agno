@@ -1,5 +1,5 @@
 import json
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional, Union
 
 try:
     from sqlalchemy.dialects import mysql
@@ -14,6 +14,7 @@ except ImportError:
 
 from agno.storage.base import Storage
 from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 
 
@@ -26,6 +27,7 @@ class SingleStoreStorage(Storage):
         db_engine: Optional[Engine] = None,
         schema_version: int = 1,
         auto_upgrade_schema: bool = False,
+        mode: Optional[Literal["agent", "workflow"]] = "agent",
     ):
         """
         This class provides Agent storage using a singlestore table.
@@ -41,7 +43,9 @@ class SingleStoreStorage(Storage):
             db_engine (Optional[Engine], optional): The database engine. Defaults to None.
             schema_version (int, optional): The schema version. Defaults to 1.
             auto_upgrade_schema (bool, optional): Automatically upgrade the schema. Defaults to False.
+            mode (Optional[Literal["agent", "workflow"]], optional): The mode of the storage. Defaults to "agent".
         """
+        super().__init__(mode)
         _engine: Optional[Engine] = db_engine
         if _engine is None and db_url is not None:
             _engine = create_engine(db_url, connect_args={"charset": "utf8mb4"})
@@ -67,29 +71,54 @@ class SingleStoreStorage(Storage):
         self.table: Table = self.get_table()
 
     def get_table_v1(self) -> Table:
-        return Table(
-            self.table_name,
-            self.metadata,
-            # Session UUID: Primary Key
-            Column("session_id", mysql.TEXT, primary_key=True),
-            # ID of the agent that this session is associated with
-            Column("agent_id", mysql.TEXT),
-            # ID of the user interacting with this agent
-            Column("user_id", mysql.TEXT),
-            # Agent memory
-            Column("memory", mysql.JSON),
-            # Agent Data
-            Column("agent_data", mysql.JSON),
-            # Session Data
-            Column("session_data", mysql.JSON),
-            # Extra Data stored with this agent
-            Column("extra_data", mysql.JSON),
-            # The Unix timestamp of when this session was created.
-            Column("created_at", mysql.BIGINT),
-            # The Unix timestamp of when this session was last updated.
-            Column("updated_at", mysql.BIGINT),
-            extend_existing=True,
-        )
+        if self.mode == "agent":
+            return Table(
+                self.table_name,
+                self.metadata,
+                # Session UUID: Primary Key
+                Column("session_id", mysql.TEXT, primary_key=True),
+                # ID of the agent that this session is associated with
+                Column("agent_id", mysql.TEXT),
+                # ID of the user interacting with this agent
+                Column("user_id", mysql.TEXT),
+                # Agent memory
+                Column("memory", mysql.JSON),
+                # Agent Data
+                Column("agent_data", mysql.JSON),
+                # Session Data
+                Column("session_data", mysql.JSON),
+                # Extra Data stored with this agent
+                Column("extra_data", mysql.JSON),
+                # The Unix timestamp of when this session was created.
+                Column("created_at", mysql.BIGINT),
+                # The Unix timestamp of when this session was last updated.
+                Column("updated_at", mysql.BIGINT),
+                extend_existing=True,
+            )
+        else:
+            return Table(
+                self.table_name,
+                self.metadata,
+                # Session UUID: Primary Key
+                Column("session_id", mysql.TEXT, primary_key=True),
+                # ID of the workflow that this session is associated with
+                Column("workflow_id", mysql.TEXT),
+                # ID of the user interacting with this workflow
+                Column("user_id", mysql.TEXT),
+                # Workflow memory
+                Column("memory", mysql.JSON),
+                # Workflow Data
+                Column("workflow_data", mysql.JSON),
+                # Session Data
+                Column("session_data", mysql.JSON),
+                # Extra Data stored with this workflow
+                Column("extra_data", mysql.JSON),
+                # The Unix timestamp of when this session was created.
+                Column("created_at", mysql.BIGINT),
+                # The Unix timestamp of when this session was last updated.
+                Column("updated_at", mysql.BIGINT),
+                extend_existing=True,
+            )
 
     def get_table(self) -> Table:
         if self.schema_version == 1:
@@ -123,12 +152,17 @@ class SingleStoreStorage(Storage):
             self.create()
         return None
 
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
         with self.Session.begin() as sess:
             existing_row: Optional[Row[Any]] = self._read(session=sess, session_id=session_id, user_id=user_id)
-            return AgentSession.from_dict(existing_row._mapping) if existing_row is not None else None  # type: ignore
+            if existing_row is not None:
+                if self.mode == "agent":
+                    return AgentSession.from_dict(existing_row._mapping)  # type: ignore
+                else:
+                    return WorkflowSession.from_dict(existing_row._mapping)  # type: ignore
+            return None
 
-    def get_all_session_ids(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[str]:
+    def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
         session_ids: List[str] = []
         try:
             with self.Session.begin() as sess:
@@ -136,8 +170,11 @@ class SingleStoreStorage(Storage):
                 stmt = select(self.table)
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
-                if agent_id is not None:
-                    stmt = stmt.where(self.table.c.agent_id == agent_id)
+                if entity_id is not None:
+                    if self.mode == "agent":
+                        stmt = stmt.where(self.table.c.agent_id == entity_id)
+                    else:
+                        stmt = stmt.where(self.table.c.workflow_id == entity_id)
                 # order by created_at desc
                 stmt = stmt.order_by(self.table.c.created_at.desc())
                 # execute query
@@ -149,97 +186,169 @@ class SingleStoreStorage(Storage):
             logger.error(f"An unexpected error occurred: {str(e)}")
         return session_ids
 
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
-        sessions: List[AgentSession] = []
+    def get_all_sessions(
+        self, user_id: Optional[str] = None, entity_id: Optional[str] = None
+    ) -> List[Union[AgentSession, WorkflowSession]]:
+        sessions: List[Union[AgentSession, WorkflowSession]] = []
         try:
             with self.Session.begin() as sess:
                 # get all sessions for this user
                 stmt = select(self.table)
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
-                if agent_id is not None:
-                    stmt = stmt.where(self.table.c.agent_id == agent_id)
+                if entity_id is not None:
+                    if self.mode == "agent":
+                        stmt = stmt.where(self.table.c.agent_id == entity_id)
+                    else:
+                        stmt = stmt.where(self.table.c.workflow_id == entity_id)
                 # order by created_at desc
                 stmt = stmt.order_by(self.table.c.created_at.desc())
                 # execute query
                 rows = sess.execute(stmt).fetchall()
                 for row in rows:
                     if row.session_id is not None:
-                        _agent_session = AgentSession.from_dict(row._mapping)  # type: ignore
-                        if _agent_session is not None:
-                            sessions.append(_agent_session)
+                        if self.mode == "agent":
+                            _agent_session = AgentSession.from_dict(row._mapping)  # type: ignore
+                            if _agent_session is not None:
+                                sessions.append(_agent_session)
+                        else:
+                            _workflow_session = WorkflowSession.from_dict(row._mapping)  # type: ignore
+                            if _workflow_session is not None:
+                                sessions.append(_workflow_session)
         except Exception:
             logger.debug(f"Table does not exist: {self.table.name}")
         return sessions
 
-    def upsert(self, session: AgentSession) -> Optional[AgentSession]:
+    def upsert(self, session: Union[AgentSession, WorkflowSession]) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
         Create a new session if it does not exist, otherwise update the existing session.
         """
 
         with self.Session.begin() as sess:
             # Create an insert statement using MySQL's ON DUPLICATE KEY UPDATE syntax
-            upsert_sql = text(
-                f"""
-                INSERT INTO {self.schema}.{self.table_name}
-                (session_id, agent_id, user_id, memory, agent_data, session_data, extra_data, created_at, updated_at)
-                VALUES
-                (:session_id, :agent_id, :user_id, :memory, :agent_data, :session_data, :extra_data, UNIX_TIMESTAMP(), NULL)
-                ON DUPLICATE KEY UPDATE
-                    agent_id = VALUES(agent_id),
-                    user_id = VALUES(user_id),
-                    memory = VALUES(memory),
-                    agent_data = VALUES(agent_data),
-                    session_data = VALUES(session_data),
-                    extra_data = VALUES(extra_data),
-                    updated_at = UNIX_TIMESTAMP();
-                """
-            )
+            if self.mode == "agent":
+                upsert_sql = text(
+                    f"""
+                    INSERT INTO {self.schema}.{self.table_name}
+                    (session_id, agent_id, user_id, memory, agent_data, session_data, extra_data, created_at, updated_at)
+                    VALUES
+                    (:session_id, :agent_id, :user_id, :memory, :agent_data, :session_data, :extra_data, UNIX_TIMESTAMP(), NULL)
+                    ON DUPLICATE KEY UPDATE
+                        agent_id = VALUES(agent_id),
+                        user_id = VALUES(user_id),
+                        memory = VALUES(memory),
+                        agent_data = VALUES(agent_data),
+                        session_data = VALUES(session_data),
+                        extra_data = VALUES(extra_data),
+                        updated_at = UNIX_TIMESTAMP();
+                    """
+                )
+            else:
+                upsert_sql = text(
+                    f"""
+                    INSERT INTO {self.schema}.{self.table_name}
+                    (session_id, workflow_id, user_id, memory, workflow_data, session_data, extra_data, created_at, updated_at)
+                    VALUES
+                    (:session_id, :workflow_id, :user_id, :memory, :workflow_data, :session_data, :extra_data, UNIX_TIMESTAMP(), NULL)
+                    ON DUPLICATE KEY UPDATE
+                        workflow_id = VALUES(workflow_id),
+                        user_id = VALUES(user_id),
+                        memory = VALUES(memory),
+                        workflow_data = VALUES(workflow_data),
+                        session_data = VALUES(session_data),
+                        extra_data = VALUES(extra_data),
+                        updated_at = UNIX_TIMESTAMP();
+                    """
+                )
 
             try:
-                sess.execute(
-                    upsert_sql,
-                    {
-                        "session_id": session.session_id,
-                        "agent_id": session.agent_id,
-                        "user_id": session.user_id,
-                        "memory": json.dumps(session.memory, ensure_ascii=False)
-                        if session.memory is not None
-                        else None,
-                        "agent_data": json.dumps(session.agent_data, ensure_ascii=False)
-                        if session.agent_data is not None
-                        else None,
-                        "session_data": json.dumps(session.session_data, ensure_ascii=False)
-                        if session.session_data is not None
-                        else None,
-                        "extra_data": json.dumps(session.extra_data, ensure_ascii=False)
-                        if session.extra_data is not None
-                        else None,
-                    },
-                )
+                if self.mode == "agent":
+                    sess.execute(
+                        upsert_sql,
+                        {
+                            "session_id": session.session_id,
+                            "agent_id": session.agent_id,  # type: ignore
+                            "user_id": session.user_id,
+                            "memory": json.dumps(session.memory, ensure_ascii=False)
+                            if session.memory is not None
+                            else None,
+                            "agent_data": json.dumps(session.agent_data, ensure_ascii=False)  # type: ignore
+                            if session.agent_data is not None  # type: ignore
+                            else None,
+                            "session_data": json.dumps(session.session_data, ensure_ascii=False)
+                            if session.session_data is not None
+                            else None,
+                            "extra_data": json.dumps(session.extra_data, ensure_ascii=False)
+                            if session.extra_data is not None
+                            else None,
+                        },
+                    )
+                else:
+                    sess.execute(
+                        upsert_sql,
+                        {
+                            "session_id": session.session_id,
+                            "workflow_id": session.workflow_id,  # type: ignore
+                            "user_id": session.user_id,
+                            "memory": json.dumps(session.memory, ensure_ascii=False)
+                            if session.memory is not None
+                            else None,
+                            "workflow_data": json.dumps(session.workflow_data, ensure_ascii=False)  # type: ignore
+                            if session.workflow_data is not None  # type: ignore
+                            else None,
+                            "session_data": json.dumps(session.session_data, ensure_ascii=False)
+                            if session.session_data is not None
+                            else None,
+                            "extra_data": json.dumps(session.extra_data, ensure_ascii=False)
+                            if session.extra_data is not None
+                            else None,
+                        },
+                    )
             except Exception:
                 # Create table and try again
                 self.create()
-                sess.execute(
-                    upsert_sql,
-                    {
-                        "session_id": session.session_id,
-                        "agent_id": session.agent_id,
-                        "user_id": session.user_id,
-                        "memory": json.dumps(session.memory, ensure_ascii=False)
-                        if session.memory is not None
-                        else None,
-                        "agent_data": json.dumps(session.agent_data, ensure_ascii=False)
-                        if session.agent_data is not None
-                        else None,
-                        "session_data": json.dumps(session.session_data, ensure_ascii=False)
-                        if session.session_data is not None
-                        else None,
-                        "extra_data": json.dumps(session.extra_data, ensure_ascii=False)
-                        if session.extra_data is not None
-                        else None,
-                    },
-                )
+                if self.mode == "agent":
+                    sess.execute(
+                        upsert_sql,
+                        {
+                            "session_id": session.session_id,
+                            "agent_id": session.agent_id,  # type: ignore
+                            "user_id": session.user_id,
+                            "memory": json.dumps(session.memory, ensure_ascii=False)
+                            if session.memory is not None
+                            else None,
+                            "agent_data": json.dumps(session.agent_data, ensure_ascii=False)  # type: ignore
+                            if session.agent_data is not None  # type: ignore
+                            else None,
+                            "session_data": json.dumps(session.session_data, ensure_ascii=False)
+                            if session.session_data is not None
+                            else None,
+                            "extra_data": json.dumps(session.extra_data, ensure_ascii=False)
+                            if session.extra_data is not None
+                            else None,
+                        },
+                    )
+                else:
+                    sess.execute(
+                        upsert_sql,
+                        {
+                            "session_id": session.session_id,
+                            "workflow_id": session.workflow_id,  # type: ignore
+                            "user_id": session.user_id,
+                            "memory": json.dumps(session.memory, ensure_ascii=False)
+                            if session.memory is not None
+                            else None,
+                            "workflow_data": json.dumps(session.workflow_data, ensure_ascii=False)  # type: ignore
+                            if session.workflow_data is not None  # type: ignore
+                            else None,
+                            "session_data": json.dumps(session.session_data, ensure_ascii=False)
+                            if session.session_data is not None
+                            else None,
+                            "extra_data": json.dumps(session.extra_data, ensure_ascii=False)
+                            if session.extra_data is not None
+                            else None,
+                        },
+                    )
         return self.read(session_id=session.session_id)
 
     def delete_session(self, session_id: Optional[str] = None):

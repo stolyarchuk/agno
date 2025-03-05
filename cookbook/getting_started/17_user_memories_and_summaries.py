@@ -43,9 +43,7 @@ def create_agent(user: str = "user"):
     new = typer.confirm("Do you want to start a new session?")
 
     # Initialize storage for both agent sessions and memories
-    agent_storage = SqliteStorage(
-        table_name="agent_memories", db_file="tmp/agents.db"
-    )
+    agent_storage = SqliteStorage(table_name="agent_memories", db_file="tmp/agents.db")
 
     if not new:
         existing_sessions = agent_storage.get_all_session_ids(user)

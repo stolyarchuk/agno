@@ -1,17 +1,19 @@
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 import yaml
 
 from agno.storage.base import Storage
 from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 
 
 class YamlStorage(Storage):
-    def __init__(self, dir_path: Union[str, Path]):
+    def __init__(self, dir_path: Union[str, Path], mode: Optional[Literal["agent", "workflow"]] = "agent"):
+        super().__init__(mode)
         self.dir_path = Path(dir_path)
         self.dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -26,41 +28,78 @@ class YamlStorage(Storage):
         if not self.dir_path.exists():
             self.dir_path.mkdir(parents=True, exist_ok=True)
 
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
-        """Read an AgentSession from storage."""
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
+        """Read a Session from storage."""
         try:
             with open(self.dir_path / f"{session_id}.yaml", "r", encoding="utf-8") as f:
                 data = self.deserialize(f.read())
                 if user_id and data["user_id"] != user_id:
                     return None
-                return AgentSession.from_dict(data)
+                if self.mode == "agent":
+                    return AgentSession.from_dict(data)
+                elif self.mode == "workflow":
+                    return WorkflowSession.from_dict(data)
         except FileNotFoundError:
             return None
 
-    def get_all_session_ids(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[str]:
-        """Get all session IDs, optionally filtered by user_id and/or agent_id."""
+    def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
+        """Get all session IDs, optionally filtered by user_id and/or entity_id."""
         session_ids = []
         for file in self.dir_path.glob("*.yaml"):
             with open(file, "r", encoding="utf-8") as f:
                 data = self.deserialize(f.read())
-                if (not user_id or data["user_id"] == user_id) and (not agent_id or data["agent_id"] == agent_id):
+                if user_id or entity_id:
+                    if user_id and entity_id:
+                        if self.mode == "agent" and data["agent_id"] == entity_id and data["user_id"] == user_id:
+                            session_ids.append(data["session_id"])
+                        elif self.mode == "workflow" and data["workflow_id"] == entity_id and data["user_id"] == user_id:
+                            session_ids.append(data["session_id"])
+                    elif user_id and data["user_id"] == user_id:
+                        session_ids.append(data["session_id"])
+                    elif entity_id:
+                        if self.mode == "agent" and data["agent_id"] == entity_id:
+                            session_ids.append(data["session_id"])
+                        elif self.mode == "workflow" and data["workflow_id"] == entity_id:
+                            session_ids.append(data["session_id"])
+                else:
+                    # No filters applied, add all session_ids
                     session_ids.append(data["session_id"])
         return session_ids
 
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
-        """Get all sessions, optionally filtered by user_id and/or agent_id."""
-        sessions = []
+    def get_all_sessions(
+        self, user_id: Optional[str] = None, entity_id: Optional[str] = None
+    ) -> List[Union[AgentSession, WorkflowSession]]:
+        """Get all sessions, optionally filtered by user_id and/or entity_id."""
+        sessions: List[Union[AgentSession, WorkflowSession]] = []
         for file in self.dir_path.glob("*.yaml"):
             with open(file, "r", encoding="utf-8") as f:
                 data = self.deserialize(f.read())
-                if (not user_id or data["user_id"] == user_id) and (not agent_id or data["agent_id"] == agent_id):
-                    _agent_session = AgentSession.from_dict(data)
-                    if _agent_session is not None:
-                        sessions.append(_agent_session)
+                if user_id or entity_id:
+                    if user_id and entity_id:
+                        if self.mode == "agent" and data["agent_id"] == entity_id and data["user_id"] == user_id:
+                            sessions.append(AgentSession.from_dict(data))
+                        elif self.mode == "workflow" and data["workflow_id"] == entity_id and data["user_id"] == user_id:
+                            sessions.append(WorkflowSession.from_dict(data))
+                    elif user_id and data["user_id"] == user_id:
+                        if self.mode == "agent":
+                            sessions.append(AgentSession.from_dict(data))
+                        elif self.mode == "workflow":
+                            sessions.append(WorkflowSession.from_dict(data))
+                    elif entity_id:
+                        if self.mode == "agent" and data["agent_id"] == entity_id:
+                            sessions.append(AgentSession.from_dict(data))
+                        elif self.mode == "workflow" and data["workflow_id"] == entity_id:
+                            sessions.append(WorkflowSession.from_dict(data))
+                else:
+                    # No filters applied, add all sessions
+                    if self.mode == "agent":
+                        sessions.append(AgentSession.from_dict(data))
+                    elif self.mode == "workflow":
+                        sessions.append(WorkflowSession.from_dict(data))
         return sessions
 
-    def upsert(self, session: AgentSession) -> Optional[AgentSession]:
-        """Insert or update an AgentSession in storage."""
+    def upsert(self, session: Union[AgentSession, WorkflowSession]) -> Optional[Union[AgentSession, WorkflowSession]]:
+        """Insert or update an Session in storage."""
         try:
             data = asdict(session)
             data["updated_at"] = int(time.time())

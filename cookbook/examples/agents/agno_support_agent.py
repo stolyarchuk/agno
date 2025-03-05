@@ -74,9 +74,7 @@ def initialize_knowledge_base(load_knowledge: bool = False):
 
 def get_agent_storage():
     """Return agent storage for session management"""
-    return SqliteStorage(
-        table_name="agno_assist_sessions", db_file="tmp/agents.db"
-    )
+    return SqliteStorage(table_name="agno_assist_sessions", db_file="tmp/agents.db")
 
 
 def create_agent(

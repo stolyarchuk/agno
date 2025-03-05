@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 
 try:
     from sqlalchemy.dialects import sqlite
@@ -10,11 +10,13 @@ try:
     from sqlalchemy.schema import Column, MetaData, Table
     from sqlalchemy.sql.expression import select
     from sqlalchemy.types import String
+    from sqlalchemy.sql import text
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 from agno.storage.base import Storage
 from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 
 
@@ -27,6 +29,7 @@ class SqliteStorage(Storage):
         db_engine: Optional[Engine] = None,
         schema_version: int = 1,
         auto_upgrade_schema: bool = False,
+        mode: Optional[Literal["agent", "workflow"]] = "agent",
     ):
         """
         This class provides agent storage using a sqlite database.
@@ -43,6 +46,7 @@ class SqliteStorage(Storage):
             db_file: The database file to connect to.
             db_engine: The SQLAlchemy database engine to use.
         """
+        super().__init__(mode)
         _engine: Optional[Engine] = db_engine
         if _engine is None and db_url is not None:
             _engine = create_engine(db_url)
@@ -82,30 +86,56 @@ class SqliteStorage(Storage):
         Returns:
             Table: SQLAlchemy Table object representing the schema.
         """
-        return Table(
-            self.table_name,
-            self.metadata,
-            # Session UUID: Primary Key
-            Column("session_id", String, primary_key=True),
-            # ID of the agent that this session is associated with
-            Column("agent_id", String),
-            # ID of the user interacting with this agent
-            Column("user_id", String),
-            # Agent Memory
-            Column("memory", sqlite.JSON),
-            # Agent Data
-            Column("agent_data", sqlite.JSON),
-            # Session Data
-            Column("session_data", sqlite.JSON),
-            # Extra Data stored with this agent
-            Column("extra_data", sqlite.JSON),
-            # The Unix timestamp of when this session was created.
-            Column("created_at", sqlite.INTEGER, default=lambda: int(time.time())),
-            # The Unix timestamp of when this session was last updated.
-            Column("updated_at", sqlite.INTEGER, onupdate=lambda: int(time.time())),
-            extend_existing=True,
-            sqlite_autoincrement=True,
-        )
+        if self.mode == "agent":
+            return Table(
+                self.table_name,
+                self.metadata,
+                # Session UUID: Primary Key
+                Column("session_id", String, primary_key=True),
+                # ID of the agent that this session is associated with
+                Column("agent_id", String, index=True),
+                # ID of the user interacting with this agent
+                Column("user_id", String, index=True),
+                # Agent Memory
+                Column("memory", sqlite.JSON),
+                # Agent Data
+                Column("agent_data", sqlite.JSON),
+                # Session Data
+                Column("session_data", sqlite.JSON),
+                # Extra Data stored with this agent
+                Column("extra_data", sqlite.JSON),
+                # The Unix timestamp of when this session was created.
+                Column("created_at", sqlite.INTEGER, default=lambda: int(time.time())),
+                # The Unix timestamp of when this session was last updated.
+                Column("updated_at", sqlite.INTEGER, onupdate=lambda: int(time.time())),
+                extend_existing=True,
+                sqlite_autoincrement=True,
+            )
+        else:
+            return Table(
+                self.table_name,
+                self.metadata,
+                # Session UUID: Primary Key
+                Column("session_id", String, primary_key=True),
+                # ID of the workflow that this session is associated with
+                Column("workflow_id", String, index=True),
+                # ID of the user interacting with this workflow
+                Column("user_id", String, index=True),
+                # Workflow Memory
+                Column("memory", sqlite.JSON),
+                # Workflow Data
+                Column("workflow_data", sqlite.JSON),
+                # Session Data
+                Column("session_data", sqlite.JSON),
+                # Extra Data stored with this workflow
+                Column("extra_data", sqlite.JSON),
+                # The Unix timestamp of when this session was created.
+                Column("created_at", sqlite.INTEGER, default=lambda: int(time.time())),
+                # The Unix timestamp of when this session was last updated.
+                Column("updated_at", sqlite.INTEGER, onupdate=lambda: int(time.time())),
+                extend_existing=True,
+                sqlite_autoincrement=True,
+            )
 
     def get_table(self) -> Table:
         """
@@ -129,9 +159,14 @@ class SqliteStorage(Storage):
         Returns:
             bool: True if the table exists, False otherwise.
         """
-        logger.debug(f"Checking if table exists: {self.table.name}")
         try:
-            return self.inspector.has_table(self.table.name)
+            # For SQLite, we need to check the sqlite_master table
+            with self.Session() as sess:
+                result = sess.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name=:table_name"),
+                    {"table_name": self.table_name}
+                ).scalar()
+                return result is not None
         except Exception as e:
             logger.error(f"Error checking if table exists: {e}")
             return False
@@ -142,18 +177,26 @@ class SqliteStorage(Storage):
         """
         if not self.table_exists():
             logger.debug(f"Creating table: {self.table.name}")
-            self.table.create(self.db_engine, checkfirst=True)
+            try:
+                # Create schema if it doesn't exist
+                with self.Session() as sess, sess.begin():
+                    # SQLite doesn't support schemas, so we'll just create the table
+                    self.table.create(self.db_engine, checkfirst=True)
+                    sess.commit()
+            except Exception as e:
+                logger.error(f"Error creating table: {e}")
+                raise
 
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
-        Read an AgentSession from the database.
+        Read a Session from the database.
 
         Args:
             session_id (str): ID of the session to read.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
 
         Returns:
-            Optional[AgentSession]: AgentSession object if found, None otherwise.
+            Optional[Union[AgentSession, WorkflowSession]]: Session object if found, None otherwise.
         """
         try:
             with self.Session() as sess:
@@ -161,7 +204,10 @@ class SqliteStorage(Storage):
                 if user_id:
                     stmt = stmt.where(self.table.c.user_id == user_id)
                 result = sess.execute(stmt).fetchone()
-                return AgentSession.from_dict(result._mapping) if result is not None else None  # type: ignore
+                if self.mode == "agent":
+                    return AgentSession.from_dict(result._mapping) if result is not None else None  # type: ignore
+                else:
+                    return WorkflowSession.from_dict(result._mapping) if result is not None else None  # type: ignore
         except Exception as e:
             logger.debug(f"Exception reading from table: {e}")
             logger.debug(f"Table does not exist: {self.table.name}")
@@ -169,13 +215,13 @@ class SqliteStorage(Storage):
             self.create()
         return None
 
-    def get_all_session_ids(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[str]:
+    def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
         """
-        Get all session IDs, optionally filtered by user_id and/or agent_id.
+        Get all session IDs, optionally filtered by user_id and/or entity_id.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
-            agent_id (Optional[str]): The ID of the agent to filter by.
+            entity_id (Optional[str]): The ID of the agent / workflow to filter by.
 
         Returns:
             List[str]: List of session IDs matching the criteria.
@@ -186,8 +232,11 @@ class SqliteStorage(Storage):
                 stmt = select(self.table.c.session_id)
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
-                if agent_id is not None:
-                    stmt = stmt.where(self.table.c.agent_id == agent_id)
+                if entity_id is not None:
+                    if self.mode == "agent":
+                        stmt = stmt.where(self.table.c.agent_id == entity_id)
+                    else:
+                        stmt = stmt.where(self.table.c.workflow_id == entity_id)
                 # order by created_at desc
                 stmt = stmt.order_by(self.table.c.created_at.desc())
                 # execute query
@@ -200,16 +249,18 @@ class SqliteStorage(Storage):
             self.create()
         return []
 
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
+    def get_all_sessions(
+        self, user_id: Optional[str] = None, entity_id: Optional[str] = None
+    ) -> List[Union[AgentSession, WorkflowSession]]:
         """
-        Get all sessions, optionally filtered by user_id and/or agent_id.
+        Get all sessions, optionally filtered by user_id and/or entity_id.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
-            agent_id (Optional[str]): The ID of the agent to filter by.
+            entity_id (Optional[str]): The ID of the agent / workflow to filter by.
 
         Returns:
-            List[AgentSession]: List of AgentSession objects matching the criteria.
+            List[Union[AgentSession, WorkflowSession]]: List of Session objects matching the criteria.
         """
         try:
             with self.Session() as sess, sess.begin():
@@ -217,13 +268,24 @@ class SqliteStorage(Storage):
                 stmt = select(self.table)
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
-                if agent_id is not None:
-                    stmt = stmt.where(self.table.c.agent_id == agent_id)
+                if entity_id is not None:
+                    if self.mode == "agent":
+                        stmt = stmt.where(self.table.c.agent_id == entity_id)
+                    else:
+                        stmt = stmt.where(self.table.c.workflow_id == entity_id)
                 # order by created_at desc
                 stmt = stmt.order_by(self.table.c.created_at.desc())
                 # execute query
                 rows = sess.execute(stmt).fetchall()
-                return [AgentSession.from_dict(row._mapping) for row in rows] if rows is not None else []  # type: ignore
+                if rows is not None:
+                    return [
+                        AgentSession.from_dict(row._mapping)
+                        if self.mode == "agent"
+                        else WorkflowSession.from_dict(row._mapping)
+                        for row in rows
+                    ]
+                else:
+                    return []
         except Exception as e:
             logger.debug(f"Exception reading from table: {e}")
             logger.debug(f"Table does not exist: {self.table.name}")
@@ -231,44 +293,73 @@ class SqliteStorage(Storage):
             self.create()
         return []
 
-    def upsert(self, session: AgentSession, create_and_retry: bool = True) -> Optional[AgentSession]:
+    def upsert(
+        self, session: Union[AgentSession, WorkflowSession], create_and_retry: bool = True
+    ) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
-        Insert or update an AgentSession in the database.
+        Insert or update a Session in the database.
 
         Args:
-            session (AgentSession): The session data to upsert.
+            session (Union[AgentSession, WorkflowSession]): The session data to upsert.
             create_and_retry (bool): Retry upsert if table does not exist.
 
         Returns:
-            Optional[AgentSession]: The upserted AgentSession, or None if operation failed.
+            Optional[Union[AgentSession, WorkflowSession]]: The upserted Session, or None if operation failed.
         """
         try:
             with self.Session() as sess, sess.begin():
-                # Create an insert statement
-                stmt = sqlite.insert(self.table).values(
-                    session_id=session.session_id,
-                    agent_id=session.agent_id,
-                    user_id=session.user_id,
-                    memory=session.memory,
-                    agent_data=session.agent_data,
-                    session_data=session.session_data,
-                    extra_data=session.extra_data,
-                )
-
-                # Define the upsert if the session_id already exists
-                # See: https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#insert-on-conflict-upsert
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["session_id"],
-                    set_=dict(
+                if self.mode == "agent":
+                    # Create an insert statement
+                    stmt = sqlite.insert(self.table).values(
+                        session_id=session.session_id,
                         agent_id=session.agent_id,
                         user_id=session.user_id,
                         memory=session.memory,
                         agent_data=session.agent_data,
                         session_data=session.session_data,
                         extra_data=session.extra_data,
-                        updated_at=int(time.time()),
-                    ),  # The updated value for each column
-                )
+                    )
+
+                    # Define the upsert if the session_id already exists
+                    # See: https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#insert-on-conflict-upsert
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["session_id"],
+                        set_=dict(
+                            agent_id=session.agent_id,
+                            user_id=session.user_id,
+                            memory=session.memory,
+                            agent_data=session.agent_data,
+                            session_data=session.session_data,
+                            extra_data=session.extra_data,
+                            updated_at=int(time.time()),
+                        ),  # The updated value for each column
+                    )
+                else:
+                    # Create an insert statement
+                    stmt = sqlite.insert(self.table).values(
+                        session_id=session.session_id,
+                        workflow_id=session.workflow_id,
+                        user_id=session.user_id,
+                        memory=session.memory,
+                        workflow_data=session.workflow_data,
+                        session_data=session.session_data,
+                        extra_data=session.extra_data,
+                    )
+
+                    # Define the upsert if the session_id already exists
+                    # See: https://docs.sqlalchemy.org/en/20/dialects/sqlite.html#insert-on-conflict-upsert
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["session_id"],
+                        set_=dict(
+                            workflow_id=session.workflow_id,
+                            user_id=session.user_id,
+                            memory=session.memory,
+                            workflow_data=session.workflow_data,
+                            session_data=session.session_data,
+                            extra_data=session.extra_data,
+                            updated_at=int(time.time()),
+                        ),  # The updated value for each column
+                    )
 
                 sess.execute(stmt)
         except Exception as e:

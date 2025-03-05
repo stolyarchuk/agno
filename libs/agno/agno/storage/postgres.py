@@ -1,5 +1,8 @@
 import time
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
+
+from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 
 try:
     from sqlalchemy.dialects import postgresql
@@ -13,7 +16,6 @@ except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 from agno.storage.base import Storage
-from agno.storage.session.agent import AgentSession
 from agno.utils.log import logger
 
 
@@ -26,6 +28,7 @@ class PostgresStorage(Storage):
         db_engine: Optional[Engine] = None,
         schema_version: int = 1,
         auto_upgrade_schema: bool = False,
+        mode: Optional[Literal["agent", "workflow"]] = "agent",
     ):
         """
         This class provides agent storage using a PostgreSQL table.
@@ -42,10 +45,11 @@ class PostgresStorage(Storage):
             db_engine (Optional[Engine]): The SQLAlchemy database engine to use.
             schema_version (int): Version of the schema. Defaults to 1.
             auto_upgrade_schema (bool): Whether to automatically upgrade the schema.
-
+            mode (Optional[Literal["agent", "workflow"]]): The mode of the storage.
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
         """
+        super().__init__(mode)
         _engine: Optional[Engine] = db_engine
         if _engine is None and db_url is not None:
             _engine = create_engine(db_url)
@@ -72,6 +76,10 @@ class PostgresStorage(Storage):
         self.table: Table = self.get_table()
         logger.debug(f"Created PostgresStorage: '{self.schema}.{self.table_name}'")
 
+    def set_storage_mode(self, mode: Literal["agent", "workflow"]):
+        self.storage_mode = mode
+        self.table = self.get_table()
+
     def get_table_v1(self) -> Table:
         """
         Define the table schema for version 1.
@@ -79,34 +87,63 @@ class PostgresStorage(Storage):
         Returns:
             Table: SQLAlchemy Table object representing the schema.
         """
-        table = Table(
-            self.table_name,
-            self.metadata,
-            # Session UUID: Primary Key
-            Column("session_id", String, primary_key=True),
-            # ID of the agent that this session is associated with
-            Column("agent_id", String),
-            # ID of the user interacting with this agent
-            Column("user_id", String),
-            # Agent Memory
-            Column("memory", postgresql.JSONB),
-            # Agent Data
-            Column("agent_data", postgresql.JSONB),
-            # Session Data
-            Column("session_data", postgresql.JSONB),
-            # Extra Data stored with this agent
-            Column("extra_data", postgresql.JSONB),
-            # The Unix timestamp of when this session was created.
-            Column("created_at", BigInteger, server_default=text("(extract(epoch from now()))::bigint")),
-            # The Unix timestamp of when this session was last updated.
-            Column("updated_at", BigInteger, server_onupdate=text("(extract(epoch from now()))::bigint")),
-            extend_existing=True,
-        )
+        if self.storage_mode == "agent":
+            table = Table(
+                self.table_name,
+                self.metadata,
+                # Session UUID: Primary Key
+                Column("session_id", String, primary_key=True),
+                # ID of the agent that this session is associated with
+                Column("agent_id", String),
+                # ID of the user interacting with this agent
+                Column("user_id", String),
+                # Agent Memory
+                Column("memory", postgresql.JSONB),
+                # Agent Data
+                Column("agent_data", postgresql.JSONB),
+                # Session Data
+                Column("session_data", postgresql.JSONB),
+                # Extra Data stored with this agent
+                Column("extra_data", postgresql.JSONB),
+                # The Unix timestamp of when this session was created.
+                Column("created_at", BigInteger, server_default=text("(extract(epoch from now()))::bigint")),
+                # The Unix timestamp of when this session was last updated.
+                Column("updated_at", BigInteger, server_onupdate=text("(extract(epoch from now()))::bigint")),
+                extend_existing=True,
+            )
+        else:
+            table = Table(
+                self.table_name,
+                self.metadata,
+                # Session UUID: Primary Key
+                Column("session_id", String, primary_key=True),
+                # ID of the workflow that this session is associated with
+                Column("workflow_id", String),
+                # ID of the user interacting with this workflow
+                Column("user_id", String),
+                # Workflow Memory
+                Column("memory", postgresql.JSONB),
+                # Workflow Data
+                Column("workflow_data", postgresql.JSONB),
+                # Session Data
+                Column("session_data", postgresql.JSONB),
+                # Extra Data
+                Column("extra_data", postgresql.JSONB),
+                # The Unix timestamp of when this session was created.
+                Column("created_at", BigInteger, default=lambda: int(time.time())),
+                # The Unix timestamp of when this session was last updated.
+                Column("updated_at", BigInteger, onupdate=lambda: int(time.time())),
+                extend_existing=True,
+            )
 
         # Add indexes
         Index(f"idx_{self.table_name}_session_id", table.c.session_id)
-        Index(f"idx_{self.table_name}_agent_id", table.c.agent_id)
         Index(f"idx_{self.table_name}_user_id", table.c.user_id)
+
+        if self.storage_mode == "agent":
+            Index(f"idx_{self.table_name}_agent_id", table.c.agent_id)
+        else:
+            Index(f"idx_{self.table_name}_workflow_id", table.c.workflow_id)
 
         return table
 
@@ -154,16 +191,16 @@ class PostgresStorage(Storage):
             except Exception as e:
                 logger.error(f"Could not create table: '{self.table.fullname}': {e}")
 
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
-        Read an AgentSession from the database.
+        Read an Session from the database.
 
         Args:
             session_id (str): ID of the session to read.
             user_id (Optional[str]): User ID to filter by. Defaults to None.
 
         Returns:
-            Optional[AgentSession]: AgentSession object if found, None otherwise.
+            Optional[Session]: Session object if found, None otherwise.
         """
         try:
             with self.Session() as sess:
@@ -171,7 +208,10 @@ class PostgresStorage(Storage):
                 if user_id:
                     stmt = stmt.where(self.table.c.user_id == user_id)
                 result = sess.execute(stmt).fetchone()
-                return AgentSession.from_dict(result._mapping) if result is not None else None
+                if self.storage_mode == "agent":
+                    return AgentSession.from_dict(result._mapping) if result is not None else None
+                else:
+                    return WorkflowSession.from_dict(result._mapping) if result is not None else None
         except Exception as e:
             logger.debug(f"Exception reading from table: {e}")
             logger.debug(f"Table does not exist: {self.table.name}")
@@ -179,13 +219,13 @@ class PostgresStorage(Storage):
             self.create()
         return None
 
-    def get_all_session_ids(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[str]:
+    def get_all_session_ids(self, user_id: Optional[str] = None, entity_id: Optional[str] = None) -> List[str]:
         """
-        Get all session IDs, optionally filtered by user_id and/or agent_id.
+        Get all session IDs, optionally filtered by user_id and/or entity_id.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
-            agent_id (Optional[str]): The ID of the agent to filter by.
+            entity_id (Optional[str]): The ID of the agent / workflow to filter by.
 
         Returns:
             List[str]: List of session IDs matching the criteria.
@@ -196,8 +236,12 @@ class PostgresStorage(Storage):
                 stmt = select(self.table.c.session_id)
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
-                if agent_id is not None:
-                    stmt = stmt.where(self.table.c.agent_id == agent_id)
+                if entity_id is not None:
+                    if self.storage_mode == "agent":
+                        stmt = stmt.where(self.table.c.agent_id == entity_id)
+                    else:
+                        stmt = stmt.where(self.table.c.workflow_id == entity_id)
+
                 # order by created_at desc
                 stmt = stmt.order_by(self.table.c.created_at.desc())
                 # execute query
@@ -210,16 +254,18 @@ class PostgresStorage(Storage):
             self.create()
         return []
 
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
+    def get_all_sessions(
+        self, user_id: Optional[str] = None, entity_id: Optional[str] = None
+    ) -> List[Union[AgentSession, WorkflowSession]]:
         """
-        Get all sessions, optionally filtered by user_id and/or agent_id.
+        Get all sessions, optionally filtered by user_id and/or entity_id.
 
         Args:
             user_id (Optional[str]): The ID of the user to filter by.
-            agent_id (Optional[str]): The ID of the agent to filter by.
+            entity_id (Optional[str]): The ID of the agent / workflow to filter by.
 
         Returns:
-            List[AgentSession]: List of AgentSession objects matching the criteria.
+            List[Union[AgentSession, WorkflowSession]]: List of Session objects matching the criteria.
         """
         try:
             with self.Session() as sess, sess.begin():
@@ -227,13 +273,24 @@ class PostgresStorage(Storage):
                 stmt = select(self.table)
                 if user_id is not None:
                     stmt = stmt.where(self.table.c.user_id == user_id)
-                if agent_id is not None:
-                    stmt = stmt.where(self.table.c.agent_id == agent_id)
+                if entity_id is not None:
+                    if self.storage_mode == "agent":
+                        stmt = stmt.where(self.table.c.agent_id == entity_id)
+                    else:
+                        stmt = stmt.where(self.table.c.workflow_id == entity_id)
                 # order by created_at desc
                 stmt = stmt.order_by(self.table.c.created_at.desc())
                 # execute query
                 rows = sess.execute(stmt).fetchall()
-                return [AgentSession.from_dict(row._mapping) for row in rows] if rows is not None else []  # type: ignore
+                if rows is not None:
+                    return [
+                        AgentSession.from_dict(row._mapping)
+                        if self.storage_mode == "agent"
+                        else WorkflowSession.from_dict(row._mapping)
+                        for row in rows
+                    ]
+                else:
+                    return []
         except Exception as e:
             logger.debug(f"Exception reading from table: {e}")
             logger.debug(f"Table does not exist: {self.table.name}")
@@ -241,44 +298,70 @@ class PostgresStorage(Storage):
             self.create()
         return []
 
-    def upsert(self, session: AgentSession, create_and_retry: bool = True) -> Optional[AgentSession]:
+    def upsert(
+        self, session: Union[AgentSession, WorkflowSession], create_and_retry: bool = True
+    ) -> Optional[Union[AgentSession, WorkflowSession]]:
         """
-        Insert or update an AgentSession in the database.
+        Insert or update an Session in the database.
 
         Args:
-            session (AgentSession): The session data to upsert.
+            session (Union[AgentSession, WorkflowSession]): The session data to upsert.
             create_and_retry (bool): Retry upsert if table does not exist.
 
         Returns:
-            Optional[AgentSession]: The upserted AgentSession, or None if operation failed.
+            Optional[Union[AgentSession, WorkflowSession]]: The upserted Session, or None if operation failed.
         """
         try:
             with self.Session() as sess, sess.begin():
                 # Create an insert statement
-                stmt = postgresql.insert(self.table).values(
-                    session_id=session.session_id,
-                    agent_id=session.agent_id,
-                    user_id=session.user_id,
-                    memory=session.memory,
-                    agent_data=session.agent_data,
-                    session_data=session.session_data,
-                    extra_data=session.extra_data,
-                )
-
-                # Define the upsert if the session_id already exists
-                # See: https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#postgresql-insert-on-conflict
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["session_id"],
-                    set_=dict(
+                if self.storage_mode == "agent":
+                    stmt = postgresql.insert(self.table).values(
+                        session_id=session.session_id,
                         agent_id=session.agent_id,
                         user_id=session.user_id,
                         memory=session.memory,
                         agent_data=session.agent_data,
                         session_data=session.session_data,
                         extra_data=session.extra_data,
-                        updated_at=int(time.time()),
-                    ),  # The updated value for each column
-                )
+                    )
+                    # Define the upsert if the session_id already exists
+                    # See: https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#postgresql-insert-on-conflict
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["session_id"],
+                        set_=dict(
+                            agent_id=session.agent_id,
+                            user_id=session.user_id,
+                            memory=session.memory,
+                            agent_data=session.agent_data,
+                            session_data=session.session_data,
+                            extra_data=session.extra_data,
+                            updated_at=int(time.time()),
+                        ),  # The updated value for each column
+                    )
+                else:
+                    stmt = postgresql.insert(self.table).values(
+                        session_id=session.session_id,
+                        workflow_id=session.workflow_id,
+                        user_id=session.user_id,
+                        memory=session.memory,
+                        workflow_data=session.workflow_data,
+                        session_data=session.session_data,
+                        extra_data=session.extra_data,
+                    )
+                    # Define the upsert if the session_id already exists
+                    # See: https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#postgresql-insert-on-conflict
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["session_id"],
+                        set_=dict(
+                            workflow_id=session.workflow_id,
+                            user_id=session.user_id,
+                            memory=session.memory,
+                            workflow_data=session.workflow_data,
+                            session_data=session.session_data,
+                            extra_data=session.extra_data,
+                            updated_at=int(time.time()),
+                        ),  # The updated value for each column
+                    )
 
                 sess.execute(stmt)
         except Exception as e:
@@ -334,13 +417,13 @@ class PostgresStorage(Storage):
 
     def __deepcopy__(self, memo):
         """
-        Create a deep copy of the PostgresAgentStorage instance, handling unpickleable attributes.
+        Create a deep copy of the PostgresStorage instance, handling unpickleable attributes.
 
         Args:
             memo (dict): A dictionary of objects already copied during the current copying pass.
 
         Returns:
-            PostgresStorage: A deep-copied instance of PostgresAgentStorage.
+            PostgresStorage: A deep-copied instance of PostgresStorage.
         """
         from copy import deepcopy
 

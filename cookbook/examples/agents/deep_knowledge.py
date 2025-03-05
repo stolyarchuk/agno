@@ -47,9 +47,7 @@ def initialize_knowledge_base():
 
 def get_agent_storage():
     """Return agent storage"""
-    return SqliteStorage(
-        table_name="deep_knowledge_sessions", db_file="tmp/agents.db"
-    )
+    return SqliteStorage(table_name="deep_knowledge_sessions", db_file="tmp/agents.db")
 
 
 def create_agent(session_id: Optional[str] = None) -> Agent:

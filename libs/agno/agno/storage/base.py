@@ -1,10 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from agno.storage.session.base import Session
 
 
 class Storage(ABC):
+    mode: Literal["agent", "workflow"]
+
+    def __init__(self, mode: Optional[Literal["agent", "workflow"]] = "agent"):  # type: ignore
+        self.mode = mode
+
     @abstractmethod
     def create(self) -> None:
         raise NotImplementedError

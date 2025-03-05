@@ -28,7 +28,7 @@ pip install -r cookbook/examples/apps/visio_ai/requirements.txt
 
 ### 3. Run PgVector
 
-Let's use Postgres for storing our data, but the SQL Agent should work with any database.
+Let's use Postgres for storing our data, but the VisioAI Agent should work with any database.
 
 > Install [docker desktop](https://docs.docker.com/desktop/install/mac-install/) first.
 

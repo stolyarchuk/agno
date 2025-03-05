@@ -1,16 +1,16 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from agno.storage.agent.session import AgentSession
+from agno.storage.session.base import Session
 
 
-class AgentStorage(ABC):
+class Storage(ABC):
     @abstractmethod
     def create(self) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[AgentSession]:
+    def read(self, session_id: str, user_id: Optional[str] = None) -> Optional[Session]:
         raise NotImplementedError
 
     @abstractmethod
@@ -18,11 +18,11 @@ class AgentStorage(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[AgentSession]:
+    def get_all_sessions(self, user_id: Optional[str] = None, agent_id: Optional[str] = None) -> List[Session]:
         raise NotImplementedError
 
     @abstractmethod
-    def upsert(self, session: AgentSession) -> Optional[AgentSession]:
+    def upsert(self, session: Session) -> Optional[Session]:
         raise NotImplementedError
 
     @abstractmethod

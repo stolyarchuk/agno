@@ -3,7 +3,7 @@
 from agno.agent import Agent
 from agno.models.ollama import Ollama
 from agno.playground import Playground, serve_playground_app
-from agno.storage.agent.sqlite import SqliteAgentStorage
+from agno.storage.sqlite import SqliteStorage
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.yfinance import YFinanceTools
 from agno.tools.youtube import YouTubeTools
@@ -20,7 +20,7 @@ web_agent = Agent(
     model=Ollama(id="llama3.1:8b"),
     tools=[DuckDuckGoTools()],
     instructions=["Always include sources."] + common_instructions,
-    storage=SqliteAgentStorage(
+    storage=SqliteStorage(
         table_name="web_agent", db_file=local_agent_storage_file
     ),
     show_tool_calls=True,
@@ -46,7 +46,7 @@ finance_agent = Agent(
     ],
     description="You are an investment analyst that researches stocks and helps users make informed decisions.",
     instructions=["Always use tables to display data"] + common_instructions,
-    storage=SqliteAgentStorage(
+    storage=SqliteStorage(
         table_name="finance_agent", db_file=local_agent_storage_file
     ),
     add_history_to_messages=True,
@@ -76,7 +76,7 @@ youtube_agent = Agent(
     show_tool_calls=True,
     add_name_to_instructions=True,
     add_datetime_to_instructions=True,
-    storage=SqliteAgentStorage(
+    storage=SqliteStorage(
         table_name="youtube_agent", db_file=local_agent_storage_file
     ),
     markdown=True,

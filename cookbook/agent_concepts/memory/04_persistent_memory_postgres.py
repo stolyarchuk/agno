@@ -3,7 +3,7 @@ from typing import List, Optional
 import typer
 from agno.agent import Agent
 from agno.knowledge.pdf_url import PDFUrlKnowledgeBase
-from agno.storage.agent.postgres import PostgresAgentStorage
+from agno.storage.postgres import PostgresStorage
 from agno.vectordb.pgvector import PgVector, SearchType
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
@@ -16,7 +16,7 @@ knowledge_base = PDFUrlKnowledgeBase(
 # Load the knowledge base: Comment after first run
 knowledge_base.load(upsert=True)
 
-storage = PostgresAgentStorage(table_name="pdf_agent", db_url=db_url)
+storage = PostgresStorage(table_name="pdf_agent", db_url=db_url)
 
 
 def pdf_agent(new: bool = False, user: str = "user"):

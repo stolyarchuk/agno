@@ -3,7 +3,7 @@ from agno.agent.agent import (
     AgentKnowledge,
     AgentMemory,
     AgentSession,
-    AgentStorage,
+    Storage,
     Function,
     Message,
     RunEvent,

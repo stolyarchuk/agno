@@ -3,8 +3,8 @@ from dataclasses import asdict
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from agno.storage.agent.base import AgentStorage
-from agno.storage.agent.session import AgentSession
+from agno.storage.base import Storage
+from agno.storage.session.agent import AgentSession
 from agno.utils.log import logger
 
 try:
@@ -15,7 +15,7 @@ except ImportError:
     raise ImportError("`boto3` not installed. Please install using `pip install boto3`.")
 
 
-class DynamoDbAgentStorage(AgentStorage):
+class DynamoDbStorage(Storage):
     def __init__(
         self,
         table_name: str,
@@ -26,7 +26,7 @@ class DynamoDbAgentStorage(AgentStorage):
         create_table_if_not_exists: bool = True,
     ):
         """
-        Initialize the DynamoDbAgentStorage.
+        Initialize the DynamoDbStorage.
 
         Args:
             table_name (str): The name of the DynamoDB table.
@@ -58,7 +58,7 @@ class DynamoDbAgentStorage(AgentStorage):
         # Optionally create table if it does not exist
         if self.create_table_if_not_exists:
             self.create()
-        logger.debug(f"Initialized DynamoDbAgentStorage with table '{self.table_name}'")
+        logger.debug(f"Initialized DynamoDbStorage with table '{self.table_name}'")
 
     def create(self) -> None:
         """

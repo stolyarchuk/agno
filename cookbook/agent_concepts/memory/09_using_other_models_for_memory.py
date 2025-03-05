@@ -32,13 +32,13 @@ from agno.memory.db.sqlite import SqliteMemoryDb
 from agno.memory.manager import MemoryManager
 from agno.memory.summarizer import MemorySummarizer
 from agno.models.groq import Groq
-from agno.storage.agent.sqlite import SqliteAgentStorage
+from agno.storage.sqlite import SqliteStorage
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.youtube import YouTubeTools
 from rich import print
 
 # Initialize storage components
-agent_storage = SqliteAgentStorage(table_name="study_sessions", db_file="tmp/agents.db")
+agent_storage = SqliteStorage(table_name="study_sessions", db_file="tmp/agents.db")
 memory_db = SqliteMemoryDb(
     table_name="study_memory",
     db_file="tmp/agent_memory.db",

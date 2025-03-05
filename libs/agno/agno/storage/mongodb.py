@@ -10,12 +10,12 @@ try:
 except ImportError:
     raise ImportError("`pymongo` not installed. Please install it with `pip install pymongo`")
 
-from agno.storage.agent.base import AgentStorage
-from agno.storage.agent.session import AgentSession
+from agno.storage.base import Storage
+from agno.storage.session.agent import AgentSession
 from agno.utils.log import logger
 
 
-class MongoDbAgentStorage(AgentStorage):
+class MongoDbStorage(Storage):
     def __init__(
         self,
         collection_name: str,
@@ -209,7 +209,7 @@ class MongoDbAgentStorage(AgentStorage):
         pass
 
     def __deepcopy__(self, memo):
-        """Create a deep copy of the MongoDbAgentStorage instance"""
+        """Create a deep copy of the MongoDbStorage instance"""
         from copy import deepcopy
 
         # Create a new instance without calling __init__

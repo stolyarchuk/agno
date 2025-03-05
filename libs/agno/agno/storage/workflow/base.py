@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from agno.storage.workflow.session import WorkflowSession
+from agno.storage.session.workflow import WorkflowSession
 
 
 class WorkflowStorage(ABC):

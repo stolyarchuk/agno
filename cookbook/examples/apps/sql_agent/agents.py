@@ -34,7 +34,7 @@ from agno.knowledge.text import TextKnowledgeBase
 from agno.models.anthropic import Claude
 from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
-from agno.storage.agent.postgres import PostgresAgentStorage
+from agno.storage.postgres import PostgresStorage
 from agno.tools.file import FileTools
 from agno.tools.sql import SQLTools
 from agno.vectordb.pgvector import PgVector
@@ -53,7 +53,7 @@ output_dir.mkdir(parents=True, exist_ok=True)
 # *******************************
 
 # ************* Storage & Knowledge *************
-agent_storage = PostgresAgentStorage(
+agent_storage = PostgresStorage(
     db_url=db_url,
     # Store agent sessions in the ai.sql_agent_sessions table
     table_name="sql_agent_sessions",

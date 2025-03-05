@@ -11,7 +11,7 @@ except ImportError:
     raise ImportError("`pymongo` not installed. Please install it with `pip install pymongo`")
 
 from agno.storage.workflow.base import WorkflowStorage
-from agno.storage.workflow.session import WorkflowSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 
 

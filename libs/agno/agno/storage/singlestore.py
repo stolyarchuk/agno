@@ -12,12 +12,12 @@ try:
 except ImportError:
     raise ImportError("`sqlalchemy` not installed")
 
-from agno.storage.agent.base import AgentStorage
-from agno.storage.agent.session import AgentSession
+from agno.storage.base import Storage
+from agno.storage.session.agent import AgentSession
 from agno.utils.log import logger
 
 
-class SingleStoreAgentStorage(AgentStorage):
+class SingleStoreStorage(Storage):
     def __init__(
         self,
         table_name: str,
@@ -277,7 +277,7 @@ class SingleStoreAgentStorage(AgentStorage):
             memo (dict): A dictionary of objects already copied during the current copying pass.
 
         Returns:
-            SingleStoreAgentStorage: A deep-copied instance of SingleStoreAgentStorage.
+            SingleStoreStorage: A deep-copied instance of SingleStoreAgentStorage.
         """
         from copy import deepcopy
 

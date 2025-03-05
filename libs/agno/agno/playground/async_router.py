@@ -27,8 +27,8 @@ from agno.playground.schemas import (
     WorkflowsGetResponse,
 )
 from agno.run.response import RunEvent
-from agno.storage.agent.session import AgentSession
-from agno.storage.workflow.session import WorkflowSession
+from agno.storage.session.agent import AgentSession
+from agno.storage.session.workflow import WorkflowSession
 from agno.utils.log import logger
 from agno.workflow.workflow import Workflow
 

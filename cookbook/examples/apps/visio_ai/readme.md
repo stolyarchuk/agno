@@ -66,7 +66,7 @@ Other API keys are optional, but if you'd like to test:
 export GOOGLE_API_KEY=***
 ```
 
-### 5. Run SQL Agent
+### 5. Run VisioAI Agent
 
 ```shell
 streamlit run cookbook/examples/apps/visio_ai/app.py

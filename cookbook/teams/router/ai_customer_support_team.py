@@ -27,7 +27,7 @@ doc_researcher_agent = Agent(
     knowledge=knowledge_base,
     search_knowledge=True,
     instructions=[
-        "You are a documentation expert for Agno. Search the knowledge base thoroughly to answer user questions.",
+        "You are a documentation expert for given product. Search the knowledge base thoroughly to answer user questions.",
         "Always provide accurate information based on the documentation.",
         "If the question matches an FAQ, provide the specific FAQ answer from the documentation.",
         "When relevant, include direct links to specific documentation pages that address the user's question.",

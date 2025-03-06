@@ -17,7 +17,7 @@ def temp_dir() -> Generator[Path, None, None]:
 
 @pytest.fixture
 def agent_storage(temp_dir: Path) -> JsonStorage:
-    return JsonStorage(dir_path=temp_dir, mode="agent")
+    return JsonStorage(dir_path=temp_dir)
 
 
 @pytest.fixture

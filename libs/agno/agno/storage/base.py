@@ -13,7 +13,7 @@ class Storage(ABC):
         """Get the mode of the storage."""
         return self._mode
 
-    @mode.setter 
+    @mode.setter
     def mode(self, value: Optional[Literal["agent", "workflow"]]) -> None:
         """Set the mode of the storage."""
         self._mode = "agent" if value is None else value

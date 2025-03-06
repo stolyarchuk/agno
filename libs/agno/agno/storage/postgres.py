@@ -9,7 +9,7 @@ try:
     from sqlalchemy.engine import Engine, create_engine
     from sqlalchemy.inspection import inspect
     from sqlalchemy.orm import scoped_session, sessionmaker
-    from sqlalchemy.schema import Column, Index, MetaData, Table
+    from sqlalchemy.schema import Column, MetaData, Table
     from sqlalchemy.sql.expression import select, text
     from sqlalchemy.types import BigInteger, String
 except ImportError:
@@ -84,7 +84,7 @@ class PostgresStorage(Storage):
     @mode.setter
     def mode(self, value: Optional[Literal["agent", "workflow"]]) -> None:
         """Set the mode and refresh the table if mode changes."""
-        super(PostgresStorage, type(self)).mode.fset(self, value)
+        super(PostgresStorage, type(self)).mode.fset(self, value)  # type: ignore
         if value is not None:
             self.table = self.get_table()
 
@@ -120,12 +120,7 @@ class PostgresStorage(Storage):
 
         # Create table with all columns
         table = Table(
-            self.table_name,
-            self.metadata,
-            *common_columns,
-            *specific_columns,
-            extend_existing=True,
-            schema=self.schema
+            self.table_name, self.metadata, *common_columns, *specific_columns, extend_existing=True, schema=self.schema
         )
 
         return table
@@ -155,7 +150,7 @@ class PostgresStorage(Storage):
         try:
             # Refresh inspector to ensure we have the latest metadata
             self.inspector = inspect(self.db_engine)
-            
+
             # Check both schema and table existence
             if self.schema is not None:
                 # First check if schema exists
@@ -163,11 +158,11 @@ class PostgresStorage(Storage):
                 if self.schema not in schemas:
                     logger.debug(f"Schema '{self.schema}' does not exist")
                     return False
-                
+
             exists = self.inspector.has_table(self.table.name, schema=self.schema)
             logger.debug(f"Table '{self.table.fullname}' does {'not' if not exists else ''} exist")
             return exists
-            
+
         except Exception as e:
             logger.error(f"Error checking if table exists: {e}")
             return False

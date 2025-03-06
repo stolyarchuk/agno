@@ -84,7 +84,7 @@ class SqliteStorage(Storage):
         """Get the mode of the storage."""
         return super().mode
 
-    @mode.setter 
+    @mode.setter
     def mode(self, value: Optional[Literal["agent", "workflow"]]) -> None:
         """Set the mode and refresh the table if mode changes."""
         super(SqliteStorage, type(self)).mode.fset(self, value)  # type: ignore

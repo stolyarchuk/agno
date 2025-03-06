@@ -201,6 +201,7 @@ exclude = ["tests*"]
 
 [[tool.mypy.overrides]]
 module = [
+  "agentql.*",
   "altair.*",
   "anthropic.*",
   "apify_client.*",

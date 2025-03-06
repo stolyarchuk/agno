@@ -2,7 +2,6 @@ from os import getenv
 from typing import Optional
 
 from agno.tools import Toolkit
-from agno.utils.log import logger
 
 try:
     import agentql
@@ -19,7 +18,7 @@ class AgentQLTools(Toolkit):
 
         self.api_key = api_key or getenv("AGENTQL_API_KEY")
         if not self.api_key:
-            logger.error("AGENTQL_API_KEY not set. Please set the AGENTQL_API_KEY environment variable.")
+            raise ValueError("AGENTQL_API_KEY not set. Please set the AGENTQL_API_KEY environment variable.")
 
         self.agentql_query = agentql_query
 
@@ -41,9 +40,6 @@ class AgentQLTools(Toolkit):
         """
         if not url:
             return "No URL provided"
-
-        if not self.api_key:
-            return "No API key provided. Please set the AGENTQL_API_KEY environment variable."
 
         TEXT_SEARCH_QUERY = """
         {
@@ -86,9 +82,6 @@ class AgentQLTools(Toolkit):
         """
         if not url:
             return "No URL provided"
-
-        if not self.api_key:
-            return "No API key provided. Please set the AGENTQL_API_KEY environment variable."
 
         if self.agentql_query == "":
             return "Custom AgentQL query not provided. Please provide a custom AgentQL query."

@@ -210,7 +210,7 @@ class TodoistTools(Toolkit):
             tasks = self.api.get_tasks()
             tasks_list = []
             for task in tasks:
-                task_dict = {
+                task_dict: Dict[str, Any] = {
                     "id": task.id,
                     "content": task.content,
                     "description": task.description,

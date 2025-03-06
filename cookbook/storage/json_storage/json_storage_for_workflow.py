@@ -2,7 +2,6 @@ import json
 from typing import Iterator
 
 import httpx
-
 from agno.agent import Agent
 from agno.run.response import RunResponse
 from agno.storage.json import JsonStorage
@@ -82,8 +81,8 @@ class HackerNewsReporter(Workflow):
 
 if __name__ == "__main__":
     # Run workflow
-    report: Iterator[RunResponse] = HackerNewsReporter(storage=JsonStorage(dir_path="tmp/workflow_sessions_json"),debug_mode=False).run(
-        num_stories=5
-    )
+    report: Iterator[RunResponse] = HackerNewsReporter(
+        storage=JsonStorage(dir_path="tmp/workflow_sessions_json"), debug_mode=False
+    ).run(num_stories=5)
     # Print the report
     pprint_run_response(report, markdown=True, show_time=True)

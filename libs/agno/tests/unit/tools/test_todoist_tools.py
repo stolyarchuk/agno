@@ -149,8 +149,10 @@ def test_update_task_success(todoist_tools, mock_todoist_api):
     mock_todoist_api.get_task.return_value = mock_task
 
     result = todoist_tools.update_task("123", content="Updated Task")
+    result_data = json.loads(result)
 
-    assert '"id": "123"' in result
+    assert result_data["id"] == "123"
+    assert result_data["content"] == "Updated Task"
     mock_todoist_api.update_task.assert_called_once_with(task_id="123", content="Updated Task")
 
 

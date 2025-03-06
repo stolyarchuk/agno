@@ -71,7 +71,7 @@ class AgentQLTools(Toolkit):
                     return f"Error extracting text: {e}"
         except Exception as e:
             return f"Error launching browser: {e}"
-        
+
         return "No text content found"
 
     def custom_scrape_website(self, url: str) -> str:
@@ -108,5 +108,5 @@ class AgentQLTools(Toolkit):
                     return f"Error extracting text: {e}"
         except Exception as e:
             return f"Error launching browser: {e}"
-        
+
         return "No text content found"

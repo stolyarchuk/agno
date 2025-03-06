@@ -65,4 +65,3 @@ def test_scrape_website_success(mock_playwright, agentql_tools):
 
     result = agentql_tools.scrape_website("https://example.com")
     assert "Example Domain" in result
-

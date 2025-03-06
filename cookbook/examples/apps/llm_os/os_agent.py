@@ -7,7 +7,7 @@ from agno.agent import Agent
 from agno.embedder.openai import OpenAIEmbedder
 from agno.knowledge import AgentKnowledge
 from agno.models.openai import OpenAIChat
-from agno.storage.postgres import PostgresStorage
+from agno.storage.agent.postgres import PostgresAgentStorage
 from agno.tools import Toolkit
 from agno.tools.calculator import CalculatorTools
 from agno.tools.duckdb import DuckDbTools
@@ -246,7 +246,7 @@ def get_llm_os(
             "You can delegate tasks to an AI Agent in your team depending of their role and the tools available to them.",
             extra_instructions,
         ],
-        storage=PostgresStorage(db_url=db_url, table_name="llm_os_runs"),
+        storage=PostgresAgentStorage(db_url=db_url, table_name="llm_os_runs"),
         # Define the knowledge base
         knowledge=AgentKnowledge(
             vector_db=Qdrant(

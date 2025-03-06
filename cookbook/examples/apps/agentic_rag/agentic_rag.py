@@ -39,7 +39,7 @@ from agno.models.anthropic import Claude
 from agno.models.google import Gemini
 from agno.models.groq import Groq
 from agno.models.openai import OpenAIChat
-from agno.storage.postgres import PostgresStorage
+from agno.storage.agent.postgres import PostgresAgentStorage
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.vectordb.pgvector import PgVector
 
@@ -93,7 +93,7 @@ def get_agentic_rag_agent(
         session_id=session_id,  # Track session ID for persistent conversations
         user_id=user_id,
         model=model,
-        storage=PostgresStorage(
+        storage=PostgresAgentStorage(
             table_name="agentic_rag_agent_sessions", db_url=db_url
         ),  # Persist session data
         memory=memory,  # Add memory to the agent

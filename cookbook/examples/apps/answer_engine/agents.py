@@ -40,7 +40,7 @@ from agno.models.groq import Groq
 from agno.models.openai import OpenAIChat
 
 # Importing storage and tool classes
-from agno.storage.sqlite import SqliteStorage
+from agno.storage.agent.sqlite import SqliteAgentStorage
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.exa import ExaTools
 from agno.tools.file import FileTools
@@ -61,7 +61,7 @@ tmp_dir.mkdir(parents=True, exist_ok=True)
 
 # ************* Agent Storage *************
 # Configure SQLite storage for agent sessions
-agent_storage = SqliteStorage(
+agent_storage = SqliteAgentStorage(
     table_name="answer_engine_sessions",  # Table to store agent sessions
     db_file=str(tmp_dir.joinpath("agents.db")),  # SQLite database file
 )

@@ -1,3 +1,12 @@
+"""
+AgentQL Tools for scraping websites.
+
+Prerequisites:
+- Set the environment variable `AGENTQL_API_KEY` with your AgentQL API key.
+  You can obtain the API key from the AgentQL website:
+  https://agentql.com/
+"""
+
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.agentql import AgentQLTools

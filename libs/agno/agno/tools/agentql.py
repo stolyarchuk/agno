@@ -77,6 +77,12 @@ class AgentQLTools(Toolkit):
     def custom_scrape_website(self, url: str) -> str:
         """
         Scrape a website using a custom AgentQL query.
+
+        Args:
+            url (str): The URL of the website to scrape
+
+        Returns:
+            str: Extracted text content or error message
         """
         if not url:
             return "No URL provided"

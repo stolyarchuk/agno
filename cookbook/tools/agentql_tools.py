@@ -5,6 +5,9 @@ Prerequisites:
 - Set the environment variable `AGENTQL_API_KEY` with your AgentQL API key.
   You can obtain the API key from the AgentQL website:
   https://agentql.com/
+- Run `playwright install` to install a browser extension for playwright.
+
+AgentQL will open up a browser instance (don't close it) and do scraping on the site.
 """
 
 from agno.agent import Agent
@@ -17,7 +20,7 @@ agent = Agent(
 )
 agent.print_response("https://docs.agno.com/introduction", markdown=True)
 
-# Define custom AgentQL query for specific data extraction
+# Define custom AgentQL query for specific data extraction (see https://docs.agentql.com/concepts/query-language)
 custom_query = """
 {
     title

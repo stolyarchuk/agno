@@ -5,7 +5,7 @@ from agno.agent import Agent
 from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
 from agno.utils.log import logger
-from image_extraction import image_processing_agent
+from agents import image_processing_agent
 
 
 def add_message(

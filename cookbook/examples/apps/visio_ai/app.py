@@ -8,7 +8,7 @@ from agno.models.google import Gemini
 from agno.models.openai import OpenAIChat
 from agno.utils.log import logger
 from dotenv import load_dotenv
-from image_extraction import chat_followup_agent, image_processing_agent
+from agents import chat_followup_agent, image_processing_agent
 from prompt import extraction_prompt
 from utils import (
     about_widget,

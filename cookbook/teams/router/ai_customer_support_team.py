@@ -5,6 +5,7 @@ from agno.team.team import Team
 from agno.tools.slack import SlackTools
 from agno.vectordb.pgvector.pgvector import PgVector
 from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.exa import ExaTools
 
 knowledge_base = WebsiteKnowledgeBase(
     urls=["https://docs.agno.com/introduction"],
@@ -24,7 +25,7 @@ doc_researcher_agent = Agent(
     name="Doc researcher Agent",
     role="Search the knowledge base for information",
     model=OpenAIChat(id="gpt-4o"),
-    tools=[DuckDuckGoTools()],
+    tools=[DuckDuckGoTools(),ExaTools()],
     knowledge=knowledge_base,
     search_knowledge=True,
     instructions=[
@@ -35,7 +36,7 @@ doc_researcher_agent = Agent(
         "If you're unsure about an answer, acknowledge it and suggest where the user might find more information.",
         "Format your responses clearly with headings, bullet points, and code examples when appropriate.",
         "Always verify that your answer directly addresses the user's specific question.",
-        "If you cannot find the answer in the documentation knowledge base, use the DuckDuckGoTools to search the web for relevant information to answer the user's question.",
+        "If you cannot find the answer in the documentation knowledge base, use the DuckDuckGoTools or ExaTools to search the web for relevant information to answer the user's question.",
     ],
 )
 

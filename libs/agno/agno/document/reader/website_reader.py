@@ -25,6 +25,8 @@ class WebsiteReader(Reader):
 
     max_depth: int = 3
     max_links: int = 10
+    bad_fragment: str = ''
+    bad_paths: list[str] = []
 
     _visited: Set[str] = field(default_factory=set)
     _urls_to_crawl: List[Tuple[str, int]] = field(default_factory=list)
@@ -102,11 +104,14 @@ class WebsiteReader(Reader):
             # - does not end with the primary domain,
             # - exceeds max depth
             # - exceeds max links
+            parsed = urlparse(current_url)
             if (
                 current_url in self._visited
                 or not urlparse(current_url).netloc.endswith(primary_domain)
                 or current_depth > self.max_depth
                 or num_links >= self.max_links
+                or parsed.fragment and self.bad_fragment in parsed.fragment
+                or parsed.path in self.bad_paths
             ):
                 continue
 

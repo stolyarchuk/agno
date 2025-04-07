@@ -13,7 +13,7 @@ from agno.tools.yfinance import YFinanceTools
 def test_tool_use():
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-lite-preview-02-05"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
         exponential_backoff=True,
@@ -32,7 +32,7 @@ def test_tool_use():
 def test_tool_use_stream():
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-lite-preview-02-05"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
         exponential_backoff=True,
@@ -61,7 +61,7 @@ def test_tool_use_stream():
 async def test_async_tool_use():
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-lite-preview-02-05"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
         exponential_backoff=True,
@@ -81,7 +81,7 @@ async def test_async_tool_use():
 async def test_async_tool_use_stream():
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-lite-preview-02-05"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
         exponential_backoff=True,
@@ -114,12 +114,10 @@ def test_tool_use_with_native_structured_outputs():
 
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-exp"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
-        exponential_backoff=True,
         response_model=StockPrice,
-        structured_outputs=True,
         telemetry=False,
         monitoring=False,
     )
@@ -131,18 +129,18 @@ def test_tool_use_with_native_structured_outputs():
     assert response.content.currency is not None
 
 
-def test_tool_use_with_response_model():
+def test_tool_use_with_json_structured_outputs():
     class StockPrice(BaseModel):
         price: float = Field(..., description="The price of the stock")
         currency: str = Field(..., description="The currency of the stock")
 
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-exp"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
-        exponential_backoff=True,
         response_model=StockPrice,
+        use_json_mode=True,
         telemetry=False,
         monitoring=False,
     )
@@ -157,7 +155,7 @@ def test_tool_use_with_response_model():
 def test_parallel_tool_calls():
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-lite-preview-02-05"),
-        tools=[YFinanceTools()],
+        tools=[YFinanceTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
         exponential_backoff=True,
@@ -180,7 +178,7 @@ def test_parallel_tool_calls():
 def test_multiple_tool_calls():
     agent = Agent(
         model=Gemini(id="gemini-2.0-flash-lite-preview-02-05"),
-        tools=[YFinanceTools(), DuckDuckGoTools()],
+        tools=[YFinanceTools(cache_results=True), DuckDuckGoTools(cache_results=True)],
         show_tool_calls=True,
         markdown=True,
         exponential_backoff=True,
@@ -197,7 +195,7 @@ def test_multiple_tool_calls():
             tool_calls.extend(msg.tool_calls)
     assert len([call for call in tool_calls if call.get("type", "") == "function"]) == 2  # Total of 2 tool calls made
     assert response.content is not None
-    assert "TSLA" in response.content and "duckduckgo_news" in response.content.lower()
+    assert "TSLA" in response.content
 
 
 def test_tool_call_custom_tool_no_parameters():

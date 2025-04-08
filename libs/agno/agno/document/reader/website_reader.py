@@ -6,7 +6,6 @@ from typing import Dict, List, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 import httpx
-
 from agno.document.base import Document
 from agno.document.reader.base import Reader
 from agno.utils.log import log_debug, logger
@@ -80,6 +79,27 @@ class WebsiteReader(Reader):
 
         return ""
 
+    def _skip_crawl(self, current_url: str, primary_domain: str, current_depth: int, num_links: int) -> bool:
+        """
+        Determine if a URL should be skipped during crawling.
+
+        :param current_url: URL to evaluate
+        :param primary_domain: Primary domain we're crawling
+        :param current_depth: Current depth of crawling
+        :param num_links: Number of links processed so far
+        :return: True if URL should be skipped, False otherwise
+        """
+        parsed = urlparse(current_url)
+        return (
+            current_url in self._visited
+            or not urlparse(current_url).netloc.endswith(primary_domain)
+            or current_depth > self.max_depth
+            or num_links >= self.max_links
+            or parsed.fragment
+            and self.bad_fragment in parsed.fragment
+            or self.bad_path in parsed.path
+        )
+
     def crawl(self, url: str, starting_depth: int = 1) -> Dict[str, str]:
         """
         Crawls a website and returns a dictionary of URLs and their corresponding content.
@@ -112,16 +132,8 @@ class WebsiteReader(Reader):
             # - does not end with the primary domain,
             # - exceeds max depth
             # - exceeds max links
-            parsed = urlparse(current_url)
-            if (
-                current_url in self._visited
-                or not urlparse(current_url).netloc.endswith(primary_domain)
-                or current_depth > self.max_depth
-                or num_links >= self.max_links
-                or parsed.fragment
-                and self.bad_fragment in parsed.fragment
-                or self.bad_path in parsed.path
-            ):
+
+            if self._skip_crawl(current_url, primary_domain, current_depth, num_links):
                 continue
 
             self._visited.add(current_url)
@@ -192,12 +204,7 @@ class WebsiteReader(Reader):
             while self._urls_to_crawl and num_links < self.max_links:
                 current_url, current_depth = self._urls_to_crawl.pop(0)
 
-                if (
-                    current_url in self._visited
-                    or not urlparse(current_url).netloc.endswith(primary_domain)
-                    or current_depth > self.max_depth
-                    or num_links >= self.max_links
-                ):
+                if self._skip_crawl(current_url, primary_domain, current_depth, num_links):
                     continue
 
                 self._visited.add(current_url)

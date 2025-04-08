@@ -16,6 +16,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     raise ImportError("`openai` not installed. Please install using `pip install openai`")
 
+
 @dataclass
 class xAI(OpenAILike):
     """
@@ -35,7 +36,6 @@ class xAI(OpenAILike):
 
     api_key: Optional[str] = getenv("XAI_API_KEY")
     base_url: Optional[str] = "https://api.x.ai/v1"
-
 
     def invoke_stream(self, messages: List[Message]) -> Iterator[ChatCompletionChunk]:
         """

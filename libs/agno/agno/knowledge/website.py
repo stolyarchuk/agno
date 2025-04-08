@@ -16,8 +16,8 @@ class WebsiteKnowledgeBase(AgentKnowledge):
     # WebsiteReader parameters
     max_depth: int = 3
     max_links: int = 10
-    bad_fragment: str = ''
-    bad_paths: list[str] = []
+    bad_fragment: str = "#"
+    bad_path: str = ""
 
     @model_validator(mode="after")
     def set_reader(self) -> "WebsiteKnowledgeBase":

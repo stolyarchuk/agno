@@ -111,7 +111,7 @@ class xAI(OpenAILike):
                 stream=True,
                 **self.request_kwargs,
             )
-            async for chunk in async_stream:
+            async for chunk in async_stream:  # type: ignore
                 yield chunk
         except RateLimitError as e:
             log_error(f"Rate limit error from OpenAI API: {e}")

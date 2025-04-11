@@ -6,6 +6,7 @@ from typing import Dict, List, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 import httpx
+
 from agno.document.base import Document
 from agno.document.reader.base import Reader
 from agno.utils.log import log_debug, logger
@@ -24,6 +25,7 @@ class WebsiteReader(Reader):
     max_links: int = 10
     bad_fragment: str = ""
     bad_path: str = ""
+    base_url: str = ""
 
     _visited: Set[str] = field(default_factory=set)
     _urls_to_crawl: List[Tuple[str, int]] = field(default_factory=list)
@@ -91,7 +93,8 @@ class WebsiteReader(Reader):
         """
         parsed = urlparse(current_url)
         return (
-            current_url in self._visited
+            self.base_url not in current_url
+            or current_url in self._visited
             or not urlparse(current_url).netloc.endswith(primary_domain)
             or current_depth > self.max_depth
             or num_links >= self.max_links

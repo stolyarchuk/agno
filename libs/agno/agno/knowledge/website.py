@@ -18,6 +18,7 @@ class WebsiteKnowledgeBase(AgentKnowledge):
     max_links: int = 10
     bad_fragment: str = "#"
     bad_path: str = ""
+    base_url: str = ""
 
     @model_validator(mode="after")
     def set_reader(self) -> "WebsiteKnowledgeBase":
@@ -28,6 +29,7 @@ class WebsiteKnowledgeBase(AgentKnowledge):
                 bad_fragment=self.bad_fragment,
                 bad_path=self.bad_path,
                 chunking_strategy=self.chunking_strategy,
+                base_url=self.base_url,
             )
         return self
 

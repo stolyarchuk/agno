@@ -93,14 +93,13 @@ class WebsiteReader(Reader):
         """
         parsed = urlparse(current_url)
         return (
-            self.base_url not in current_url
-            or current_url in self._visited
-            or not urlparse(current_url).netloc.endswith(primary_domain)
-            or current_depth > self.max_depth
-            or num_links >= self.max_links
-            or parsed.fragment
-            and self.bad_fragment in parsed.fragment
-            or self.bad_path in parsed.path
+            (self.base_url and self.base_url not in current_url)
+            or (current_url in self._visited)
+            or (not urlparse(current_url).netloc.endswith(primary_domain))
+            or (current_depth > self.max_depth)
+            or (num_links >= self.max_links)
+            or (parsed.fragment and self.bad_fragment in parsed.fragment)
+            or (self.bad_path in parsed.path)
         )
 
     def crawl(self, url: str, starting_depth: int = 1) -> Dict[str, str]:

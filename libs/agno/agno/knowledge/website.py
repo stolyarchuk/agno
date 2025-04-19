@@ -25,9 +25,9 @@ class WebsiteKnowledgeBase(AgentKnowledge):
             self.reader = WebsiteReader(
                 max_depth=self.max_depth,
                 max_links=self.max_links,
+                chunking_strategy=self.chunking_strategy,
                 bad_fragment=self.bad_fragment,
                 bad_path=self.bad_path,
-                chunking_strategy=self.chunking_strategy,
                 base_url=self.base_url,
             )
         return self

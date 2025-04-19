@@ -1,12 +1,11 @@
 import asyncio
 from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
 
-from pydantic import model_validator
-
 from agno.document import Document
 from agno.document.reader.website_reader import WebsiteReader
 from agno.knowledge.agent import AgentKnowledge
 from agno.utils.log import log_debug, log_info, logger
+from pydantic import model_validator
 
 
 class WebsiteKnowledgeBase(AgentKnowledge):
@@ -16,7 +15,7 @@ class WebsiteKnowledgeBase(AgentKnowledge):
     # WebsiteReader parameters
     max_depth: int = 3
     max_links: int = 10
-    bad_fragment: str = "#"
+    bad_fragment: str = ""
     bad_path: str = ""
     base_url: str = ""
 
@@ -26,9 +25,9 @@ class WebsiteKnowledgeBase(AgentKnowledge):
             self.reader = WebsiteReader(
                 max_depth=self.max_depth,
                 max_links=self.max_links,
+                chunking_strategy=self.chunking_strategy,
                 bad_fragment=self.bad_fragment,
                 bad_path=self.bad_path,
-                chunking_strategy=self.chunking_strategy,
                 base_url=self.base_url,
             )
         return self

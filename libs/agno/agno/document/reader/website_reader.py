@@ -31,13 +31,25 @@ class WebsiteReader(Reader):
     _urls_to_crawl: List[Tuple[str, int]] = field(default_factory=list)
 
     def __init__(
-        self, max_depth: int = 3, max_links: int = 10, timeout: int = 10, proxy: Optional[str] = None, **kwargs
+        self,
+        max_depth: int = 3,
+        max_links: int = 10,
+        timeout: int = 10,
+        proxy: Optional[str] = None,
+        bad_fragment: str = "",
+        bad_path: str = "",
+        base_url: str = "",
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.max_depth = max_depth
         self.max_links = max_links
         self.proxy = proxy
         self.timeout = timeout
+
+        self.bad_fragment = bad_fragment
+        self.bad_path = bad_path
+        self.base_url = base_url
 
         self._visited = set()
         self._urls_to_crawl = []

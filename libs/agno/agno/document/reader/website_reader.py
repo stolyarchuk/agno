@@ -2,7 +2,7 @@ import asyncio
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -25,9 +25,34 @@ class WebsiteReader(Reader):
     max_links: int = 10
     bad_fragment: str = ""
     bad_path: str = ""
+    base_url: str = ""
 
     _visited: Set[str] = field(default_factory=set)
     _urls_to_crawl: List[Tuple[str, int]] = field(default_factory=list)
+
+    def __init__(
+        self,
+        max_depth: int = 3,
+        max_links: int = 10,
+        timeout: int = 10,
+        proxy: Optional[str] = None,
+        bad_fragment: str = "",
+        bad_path: str = "",
+        base_url: str = "",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.max_depth = max_depth
+        self.max_links = max_links
+        self.proxy = proxy
+        self.timeout = timeout
+
+        self.bad_fragment = bad_fragment
+        self.bad_path = bad_path
+        self.base_url = base_url
+
+        self._visited = set()
+        self._urls_to_crawl = []
 
     def delay(self, min_seconds=1, max_seconds=3):
         """
@@ -80,6 +105,27 @@ class WebsiteReader(Reader):
 
         return ""
 
+    def _skip_crawl(self, current_url: str, primary_domain: str, current_depth: int, num_links: int) -> bool:
+        """
+        Determine if a URL should be skipped during crawling.
+
+        :param current_url: URL to evaluate
+        :param primary_domain: Primary domain we're crawling
+        :param current_depth: Current depth of crawling
+        :param num_links: Number of links processed so far
+        :return: True if URL should be skipped, False otherwise
+        """
+        parsed = urlparse(current_url)
+        return (
+            (self.base_url and self.base_url not in current_url)
+            or (current_url in self._visited)
+            or (not urlparse(current_url).netloc.endswith(primary_domain))
+            or (current_depth > self.max_depth)
+            or (num_links >= self.max_links)
+            or (parsed.fragment and self.bad_fragment in parsed.fragment)
+            or (self.bad_path in parsed.path)
+        )
+
     def crawl(self, url: str, starting_depth: int = 1) -> Dict[str, str]:
         """
         Crawls a website and returns a dictionary of URLs and their corresponding content.
@@ -112,16 +158,8 @@ class WebsiteReader(Reader):
             # - does not end with the primary domain,
             # - exceeds max depth
             # - exceeds max links
-            parsed = urlparse(current_url)
-            if (
-                current_url in self._visited
-                or not urlparse(current_url).netloc.endswith(primary_domain)
-                or current_depth > self.max_depth
-                or num_links >= self.max_links
-                or parsed.fragment
-                and self.bad_fragment in parsed.fragment
-                or self.bad_path in parsed.path
-            ):
+
+            if self._skip_crawl(current_url, primary_domain, current_depth, num_links):
                 continue
 
             self._visited.add(current_url)
@@ -129,7 +167,11 @@ class WebsiteReader(Reader):
 
             try:
                 log_debug(f"Crawling: {current_url}")
-                response = httpx.get(current_url, timeout=10)
+                response = (
+                    httpx.get(current_url, timeout=self.timeout, proxy=self.proxy)
+                    if self.proxy
+                    else httpx.get(current_url, timeout=self.timeout)
+                )
 
                 response.raise_for_status()
                 soup = BeautifulSoup(response.content, "html.parser")
@@ -188,16 +230,12 @@ class WebsiteReader(Reader):
         self._visited = set()
         self._urls_to_crawl = [(url, starting_depth)]
 
-        async with httpx.AsyncClient() as client:
+        client_args = {"proxy": self.proxy} if self.proxy else {}
+        async with httpx.AsyncClient(**client_args) as client:
             while self._urls_to_crawl and num_links < self.max_links:
                 current_url, current_depth = self._urls_to_crawl.pop(0)
 
-                if (
-                    current_url in self._visited
-                    or not urlparse(current_url).netloc.endswith(primary_domain)
-                    or current_depth > self.max_depth
-                    or num_links >= self.max_links
-                ):
+                if self._skip_crawl(current_url, primary_domain, current_depth, num_links):
                     continue
 
                 self._visited.add(current_url)
@@ -205,7 +243,7 @@ class WebsiteReader(Reader):
 
                 try:
                     log_debug(f"Crawling asynchronously: {current_url}")
-                    response = await client.get(current_url, timeout=10, follow_redirects=True)
+                    response = await client.get(current_url, timeout=self.timeout, follow_redirects=True)
                     response.raise_for_status()
 
                     soup = BeautifulSoup(response.content, "html.parser")

@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from os import getenv
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ from agno.memory.v2.schema import SessionSummary, UserMemory
 from agno.memory.v2.summarizer import SessionSummarizer
 from agno.models.base import Model
 from agno.models.message import Message
+from agno.run.base import RunStatus
 from agno.run.response import RunResponse
 from agno.run.team import TeamRunResponse
 from agno.utils.log import log_debug, log_warning, logger, set_log_level_to_debug, set_log_level_to_info
@@ -45,7 +46,14 @@ class TeamMemberInteraction:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TeamMemberInteraction":
-        return cls(member_name=data["member_name"], task=data["task"], response=RunResponse.from_dict(data["response"]))
+        if data["response"].get("agent_id"):
+            return cls(
+                member_name=data["member_name"], task=data["task"], response=RunResponse.from_dict(data["response"])
+            )
+        else:
+            return cls(
+                member_name=data["member_name"], task=data["task"], response=TeamRunResponse.from_dict(data["response"])
+            )
 
 
 @dataclass
@@ -265,7 +273,6 @@ class Memory:
 
     def get_session_summary(self, session_id: str, user_id: Optional[str] = None) -> Optional[SessionSummary]:
         """Get the session summary for a given user id"""
-
         if user_id is None:
             user_id = "default"
         if self.summaries is None:
@@ -374,6 +381,10 @@ class Memory:
         if refresh_from_db:
             self.refresh_from_db(user_id=user_id)
 
+        if memory_id not in self.memories[user_id]:  # type: ignore
+            log_warning(f"Memory {memory_id} not found for user {user_id}")
+            return None
+
         del self.memories[user_id][memory_id]  # type: ignore
         if self.db:
             self._delete_db_memory(memory_id=memory_id)
@@ -433,7 +444,6 @@ class Memory:
             summary=summary_response.summary, topics=summary_response.topics, last_updated=datetime.now()
         )
         self.summaries.setdefault(user_id, {})[session_id] = session_summary  # type: ignore
-
         return session_summary
 
     def create_user_memories(
@@ -669,21 +679,42 @@ class Memory:
         """Adds a RunResponse to the runs list."""
         if not self.runs:
             self.runs = {}
-        self.runs.setdefault(session_id, []).append(run)
+
+        if session_id not in self.runs:
+            self.runs[session_id] = []
+
+        # Check if run already exists with the same run_id
+        if hasattr(run, "run_id") and run.run_id:
+            run_id = run.run_id
+            # Look for existing run with same ID
+            for i, existing_run in enumerate(self.runs[session_id]):
+                if hasattr(existing_run, "run_id") and existing_run.run_id == run_id:
+                    # Replace existing run
+                    self.runs[session_id][i] = run
+                    log_debug(f"Replaced existing run with run_id {run_id} in memory")
+                    return
+
+        self.runs[session_id].append(run)
         log_debug("Added RunResponse to Memory")
 
     def get_messages_from_last_n_runs(
         self,
         session_id: str,
+        agent_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         last_n: Optional[int] = None,
         skip_role: Optional[str] = None,
+        skip_status: Optional[List[RunStatus]] = None,
         skip_history_messages: bool = True,
     ) -> List[Message]:
         """Returns the messages from the last_n runs, excluding previously tagged history messages.
         Args:
             session_id: The session id to get the messages from.
+            agent_id: The id of the agent to get the messages from.
+            team_id: The id of the team to get the messages from.
             last_n: The number of runs to return from the end of the conversation. Defaults to all runs.
             skip_role: Skip messages with this role.
+            skip_status: Skip messages with this status.
             skip_history_messages: Skip messages that were tagged as history in previous runs.
         Returns:
             A list of Messages from the specified runs, excluding history messages.
@@ -691,7 +722,20 @@ class Memory:
         if not self.runs:
             return []
 
+        if skip_status is None:
+            skip_status = [RunStatus.paused, RunStatus.cancelled, RunStatus.error]
+
         session_runs = self.runs.get(session_id, [])
+        # Filter by agent_id and team_id
+        if agent_id:
+            session_runs = [run for run in session_runs if hasattr(run, "agent_id") and run.agent_id == agent_id]  # type: ignore
+        if team_id:
+            session_runs = [run for run in session_runs if hasattr(run, "team_id") and run.team_id == team_id]  # type: ignore
+
+        # Filter by status
+        session_runs = [run for run in session_runs if hasattr(run, "status") and run.status not in skip_status]  # type: ignore
+
+        # Filter by last_n
         runs_to_process = session_runs[-last_n:] if last_n is not None else session_runs
         messages_from_history = []
         system_message = None
@@ -784,24 +828,21 @@ class Memory:
         else:  # Default to last_n
             return self._get_last_n_memories(user_id=user_id, limit=limit)
 
-    def _update_model_for_agentic_search(self) -> None:
+    def get_response_format(self) -> Union[Dict[str, Any], Type[BaseModel]]:
         model = self.get_model()
         if model.supports_native_structured_outputs:
-            model.response_format = MemorySearchResponse
-            model.structured_outputs = True
+            return MemorySearchResponse
 
         elif model.supports_json_schema_outputs:
-            model.response_format = {
+            return {
                 "type": "json_schema",
                 "json_schema": {
                     "name": MemorySearchResponse.__name__,
                     "schema": MemorySearchResponse.model_json_schema(),
                 },
             }
-            model.structured_outputs = False
         else:
-            model.response_format = {"type": "json_object"}
-            model.structured_outputs = False
+            return {"type": "json_object"}
 
     def _search_user_memories_agentic(self, user_id: str, query: str, limit: Optional[int] = None) -> List[UserMemory]:
         """Search through user memories using agentic search."""
@@ -810,7 +851,7 @@ class Memory:
 
         model = self.get_model()
 
-        self._update_model_for_agentic_search()
+        response_format = self.get_response_format()
 
         log_debug("Searching for memories", center=True)
 
@@ -828,7 +869,7 @@ class Memory:
         system_message_str += "\n</user_memories>\n\n"
         system_message_str += "REMEMBER: Only return the IDs of the memories that are related to the query."
 
-        if model.response_format == {"type": "json_object"}:
+        if response_format == {"type": "json_object"}:
             system_message_str += "\n" + get_json_output_prompt(MemorySearchResponse)  # type: ignore
 
         messages_for_model = [
@@ -840,7 +881,7 @@ class Memory:
         ]
 
         # Generate a response from the Model (includes running function calls)
-        response = model.response(messages=messages_for_model)
+        response = model.response(messages=messages_for_model, response_format=response_format)
         log_debug("Search for memories complete", center=True)
 
         memory_search: Optional[MemorySearchResponse] = None
@@ -943,6 +984,7 @@ class Memory:
             self.db.clear()
         self.memories = {}
         self.summaries = {}
+        self.runs = {}
 
     def deep_copy(self) -> "Memory":
         from copy import deepcopy
@@ -1063,3 +1105,21 @@ class Memory:
                 if interaction.response.audio:
                     audio.extend(interaction.response.audio)
         return audio
+
+    def __deepcopy__(self, memo):
+        from copy import deepcopy
+
+        # Create a new instance without calling __init__
+        cls = self.__class__
+        copied_obj = cls.__new__(cls)
+        memo[id(self)] = copied_obj
+
+        # Deep copy attributes
+        for k, v in self.__dict__.items():
+            # Reuse db
+            if k in {"db", "memory_manager", "summary_manager", "team_context"}:
+                setattr(copied_obj, k, v)
+            else:
+                setattr(copied_obj, k, deepcopy(v, memo))
+
+        return copied_obj
